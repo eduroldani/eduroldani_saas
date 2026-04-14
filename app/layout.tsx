@@ -2,8 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "Tasks",
-  description: "Minimal internal task board",
+  title: "edu roldani",
+  description: "Internal task workspace",
 };
 
 export default function RootLayout({
