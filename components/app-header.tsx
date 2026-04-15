@@ -63,7 +63,23 @@ export function AppHeader({
             aria-label={isMenuOpen ? "Close menu" : "Open menu"}
             onClick={() => setIsMenuOpen((current) => !current)}
           >
-            {isMenuOpen ? "X" : "M"}
+            {isMenuOpen ? (
+              "X"
+            ) : (
+              <svg
+                aria-hidden="true"
+                className="h-4 w-4"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                strokeLinecap="round"
+              >
+                <path d="M4 7h16" />
+                <path d="M4 12h16" />
+                <path d="M4 17h16" />
+              </svg>
+            )}
           </button>
 
           <nav className="hidden rounded-md border border-black/10 bg-[#fafafa] p-1 sm:flex">

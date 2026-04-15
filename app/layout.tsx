@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "edu roldani",
+  title: "Tasks",
   description: "Internal task workspace",
 };
 

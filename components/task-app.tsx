@@ -26,6 +26,7 @@ const statuses: TaskStatus[] = ["To do", "In progress", "Done"];
 const priorities: TaskPriority[] = ["Low", "Medium", "High"];
 const viewModes: ViewMode[] = ["Board", "List"];
 const buyTagNames = new Set(["buy", "compra"]);
+const statusSections: TaskStatus[] = ["In progress", "To do", "Done"];
 
 type GroupMode = "none" | "tag";
 type DashboardSection = "tasks" | "buy";
@@ -56,26 +57,26 @@ function priorityTone(priority: TaskPriority) {
 
 function statusTone(status: TaskStatus) {
   if (status === "Done") {
-    return "border-[#cfe5cf] bg-[#eef8ee] text-[#2f5b38]";
+    return "border-[#7bb87e] bg-[#d9f0db] text-[#1f5e2a]";
   }
 
   if (status === "In progress") {
-    return "border-[#efdfb5] bg-[#fff8e8] text-[#7b6424]";
+    return "border-[#e0bf61] bg-[#fff0c7] text-[#755600]";
   }
 
-  return "border-[#f0d3ca] bg-[#fff2ee] text-[#7b3f2f]";
+  return "border-[#de8d75] bg-[#ffd9cd] text-[#7f2f1d]";
 }
 
 function statusContainerTone(status: TaskStatus) {
   if (status === "Done") {
-    return "border-[#d7e8d7] bg-[#f7fcf7]";
+    return "border-[#a5d6a8] bg-[#eff9ef]";
   }
 
   if (status === "In progress") {
-    return "border-[#f0e4c6] bg-[#fffaf0]";
+    return "border-[#ebd28d] bg-[#fff8e2]";
   }
 
-  return "border-[#f2ddd6] bg-[#fff8f6]";
+  return "border-[#e9b8a8] bg-[#fff0eb]";
 }
 
 function Avatar({ profile, small = false }: { profile: Profile; small?: boolean }) {
@@ -101,6 +102,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
   const [dueDate, setDueDate] = useState(todayDate());
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
   const [newTaskTagPickerValue, setNewTaskTagPickerValue] = useState("");
+  const [isCreateTagPickerOpen, setIsCreateTagPickerOpen] = useState(false);
   const [profile, setProfile] = useState<Profile>(mockProfile);
   const [tags, setTags] = useState<Tag[]>(mockTags);
   const [tasks, setTasks] = useState<Task[]>(mockTasks);
@@ -108,6 +110,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [groupMode, setGroupMode] = useState<GroupMode>("none");
+  const [showDone, setShowDone] = useState(false);
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [isTagPickerOpen, setIsTagPickerOpen] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState("");
@@ -206,6 +209,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
         setSelectedTagIds((currentTagIds) =>
           currentTagIds.includes(existingTag.id) ? currentTagIds : [...currentTagIds, existingTag.id],
         );
+        setIsCreateTagPickerOpen(false);
         setNewTaskTagPickerValue("");
         return;
       }
@@ -215,6 +219,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
       setSelectedTagIds((currentTagIds) =>
         currentTagIds.includes(createdTag.id) ? currentTagIds : [...currentTagIds, createdTag.id],
       );
+      setIsCreateTagPickerOpen(false);
       setNewTaskTagPickerValue("");
       return;
     }
@@ -222,6 +227,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
     setSelectedTagIds((currentTagIds) =>
       currentTagIds.includes(value) ? currentTagIds : [...currentTagIds, value],
     );
+    setIsCreateTagPickerOpen(false);
     setNewTaskTagPickerValue("");
   };
 
@@ -248,6 +254,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
     setPriority("Medium");
     setDueDate(todayDate());
     setNewTaskTagPickerValue("");
+    setIsCreateTagPickerOpen(false);
     if (section === "buy" && primaryBuyTagId) {
       setSelectedTagIds([primaryBuyTagId]);
       return;
@@ -357,6 +364,18 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
       }))
       .filter((group) => group.items.length > 0);
   }, [sortedTasks, tags]);
+
+  const tasksByStatus = useMemo(
+    () =>
+      statusSections
+        .map((statusLabel) => ({
+          status: statusLabel,
+          items: sortedTasks.filter((task) => task.status === statusLabel),
+        }))
+        .filter((group) => (showDone ? true : group.status !== "Done"))
+        .filter((group) => group.items.length > 0),
+    [showDone, sortedTasks],
+  );
 
   const TaskTags = ({
     tagIds,
@@ -542,13 +561,19 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
                 placeholder="Title"
               />
               <textarea
-                className="min-h-[84px] w-full resize-none rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40"
+                className={`min-h-[84px] w-full resize-none rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40 ${
+                  section === "buy" ? "hidden sm:block" : "block"
+                }`}
                 value={description}
                 onChange={(event) => setDescription(event.target.value)}
                 placeholder="Description"
               />
 
-              <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+              <div
+                className={`grid gap-3 sm:grid-cols-2 xl:grid-cols-3 ${
+                  section === "buy" ? "hidden sm:grid" : ""
+                }`}
+              >
                 <select
                   className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40"
                   value={status}
@@ -577,40 +602,82 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
                   value={dueDate}
                   onChange={(event) => setDueDate(event.target.value)}
                 />
-                <select
-                  className="rounded-md border border-black/10 bg-white px-3 py-3 text-xs text-black outline-none transition focus:border-black/40"
-                  value={newTaskTagPickerValue}
-                  onChange={(event) => void handleTagSelectionForNewTask(event.target.value)}
-                >
-                  <option value="">Add tag</option>
-                  {tags
-                    .filter((tag) => !selectedTagIds.includes(tag.id))
-                    .map((tag) => (
-                      <option key={tag.id} value={tag.id}>
-                        {tag.name}
-                      </option>
-                    ))}
-                  <option value="__create_new_tag__">+ Create new tag</option>
-                </select>
               </div>
 
-              <div className="flex flex-wrap gap-2">
-                {selectedTagIds.map((tagId) => (
-                  <button
-                    key={tagId}
-                    className="group inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-2 py-1 text-[11px] text-black/60"
-                    type="button"
-                    onClick={() =>
-                      setSelectedTagIds((currentTagIds) =>
-                        currentTagIds.filter((currentTagId) => currentTagId !== tagId),
-                      )
-                    }
-                  >
-                    <span>{getTagName(tagId)}</span>
-                    <span className="opacity-0 transition group-hover:opacity-100">x</span>
-                  </button>
-                ))}
-              </div>
+              {section === "tasks" ? (
+                <>
+                  <div className="hidden items-center gap-2 sm:flex">
+                    <button
+                      className="flex h-7 w-7 items-center justify-center rounded-md border border-black/10 text-xs text-black/65 transition hover:border-black/30"
+                      type="button"
+                      onClick={() => setIsCreateTagPickerOpen((current) => !current)}
+                      aria-label="Add tag"
+                    >
+                      +
+                    </button>
+
+                    <div className="flex flex-wrap gap-2">
+                      {selectedTagIds.map((tagId) => (
+                        <button
+                          key={tagId}
+                          className="group inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-2 py-1 text-[11px] text-black/60"
+                          type="button"
+                          onClick={() =>
+                            setSelectedTagIds((currentTagIds) =>
+                              currentTagIds.filter((currentTagId) => currentTagId !== tagId),
+                            )
+                          }
+                        >
+                          <span>{getTagName(tagId)}</span>
+                          <span className="opacity-0 transition group-hover:opacity-100">x</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  {isCreateTagPickerOpen ? (
+                    <div className="hidden flex-wrap gap-2 sm:flex">
+                      {tags
+                        .filter((tag) => !selectedTagIds.includes(tag.id))
+                        .map((tag) => (
+                          <button
+                            key={tag.id}
+                            className="rounded-md border border-black/10 bg-white px-3 py-2 text-xs text-black/65 transition hover:border-black/30"
+                            type="button"
+                            onClick={() => void handleTagSelectionForNewTask(tag.id)}
+                          >
+                            {tag.name}
+                          </button>
+                        ))}
+                      <button
+                        className="rounded-md border border-black/10 bg-white px-3 py-2 text-xs text-black/65 transition hover:border-black/30"
+                        type="button"
+                        onClick={() => void handleTagSelectionForNewTask("__create_new_tag__")}
+                      >
+                        + New tag
+                      </button>
+                    </div>
+                  ) : null}
+
+                  <div className="sm:hidden">
+                    <select
+                      className="w-full rounded-md border border-black/10 bg-white px-3 py-3 text-xs text-black outline-none transition focus:border-black/40"
+                      value={newTaskTagPickerValue}
+                      onChange={(event) => void handleTagSelectionForNewTask(event.target.value)}
+                    >
+                      <option value="">Add tag</option>
+                      {tags
+                        .filter((tag) => !selectedTagIds.includes(tag.id))
+                        .map((tag) => (
+                          <option key={tag.id} value={tag.id}>
+                            {tag.name}
+                          </option>
+                        ))}
+                      <option value="__create_new_tag__">+ Create new tag</option>
+                    </select>
+                  </div>
+                </>
+              ) : null}
 
               <div className="flex justify-start">
                 <button
@@ -625,7 +692,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
 
           {section === "tasks" ? (
             <section className="rounded-lg border border-black/10 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-5">
-              <div className="grid gap-3 md:grid-cols-3">
+              <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-md border border-black/10 bg-[#fafafa] px-4 py-3 text-xs text-black/55">
                   Priority: High to Low · Newest first
                 </div>
@@ -651,6 +718,13 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
                   <option value="none">No grouping</option>
                   <option value="tag">Group by tag</option>
                 </select>
+                <button
+                  className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black/70 transition hover:border-black/30"
+                  type="button"
+                  onClick={() => setShowDone((current) => !current)}
+                >
+                  {showDone ? "Hide done" : "Show done"}
+                </button>
               </div>
             </section>
           ) : (
@@ -723,109 +797,123 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
               })}
             </section>
           ) : (
-            <section className="overflow-hidden rounded-lg border border-black/10 bg-white shadow-[0_18px_60px_rgba(0,0,0,0.08)]">
-              <div className="hidden grid-cols-[minmax(0,1.2fr)_minmax(0,1.9fr)_120px_120px_120px] gap-3 border-b border-black/10 px-4 py-3 text-xs uppercase tracking-[0.18em] text-black/45 lg:grid">
-                <span>Task</span>
-                <span>Description</span>
-                <span>Due</span>
-                <span>Priority</span>
-                <span>Status</span>
-              </div>
+            <section className="space-y-4">
+              {tasksByStatus.length === 0 ? (
+                <section className="rounded-lg border border-black/10 bg-white p-4 text-sm text-black/55 shadow-[0_18px_60px_rgba(0,0,0,0.08)]">
+                  No tasks for this filter.
+                </section>
+              ) : (
+                tasksByStatus.map((group) => (
+                  <section
+                    key={group.status}
+                    className={`overflow-hidden rounded-lg border shadow-[0_18px_60px_rgba(0,0,0,0.08)] ${statusContainerTone(group.status)}`}
+                  >
+                    <div className="flex items-center justify-between border-b border-black/10 px-4 py-3">
+                      <h2 className="text-xs font-semibold uppercase tracking-[0.18em] text-black/70">
+                        {group.status}
+                      </h2>
+                      <span className={`rounded-md border px-2 py-1 text-[11px] ${statusTone(group.status)}`}>
+                        {group.items.length}
+                      </span>
+                    </div>
 
-              <div className="divide-y divide-black/10">
-                {sortedTasks.map((task) => (
-                  <div key={task.id} className={`px-4 py-4 ${statusContainerTone(task.status)}`}>
-                    <div className="hidden gap-3 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.9fr)_120px_120px_120px] lg:items-start">
-                      <div className="min-w-0 space-y-2">
-                        <button className="w-full min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>
-                          <p className="truncate text-sm font-medium">{task.title}</p>
-                        </button>
+                    <div className="divide-y divide-black/10">
+                      {group.items.map((task) => (
+                        <div key={task.id} className="px-4 py-4">
+                          <div className="hidden gap-3 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.9fr)_120px_120px_120px] lg:items-start">
+                            <div className="min-w-0 space-y-2">
+                              <button className="w-full min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>
+                                <p className="truncate text-sm font-medium">{task.title}</p>
+                              </button>
 
-                        <div className="flex flex-wrap items-center gap-2">
-                          <TaskTags
-                            tagIds={task.tagIds}
-                            removable
-                            onRemove={(tagId) =>
-                              void updateTask(task.id, {
-                                tagIds: task.tagIds.filter((currentTagId) => currentTagId !== tagId),
-                              })
-                            }
-                          />
+                              <div className="flex flex-wrap items-center gap-2">
+                                <TaskTags
+                                  tagIds={task.tagIds}
+                                  removable
+                                  onRemove={(tagId) =>
+                                    void updateTask(task.id, {
+                                      tagIds: task.tagIds.filter((currentTagId) => currentTagId !== tagId),
+                                    })
+                                  }
+                                />
 
-                          <select
-                            className="h-[30px] w-auto max-w-full rounded-md border border-black/10 bg-white px-2.5 text-xs text-black/70 outline-none transition focus:border-black/35"
-                            value=""
-                            onChange={(event) => {
-                              const nextTagId = event.target.value;
-                              if (!nextTagId || task.tagIds.includes(nextTagId)) {
-                                return;
+                                <select
+                                  className="h-[30px] w-auto max-w-full rounded-md border border-black/10 bg-white px-2.5 text-xs text-black/70 outline-none transition focus:border-black/35"
+                                  value=""
+                                  onChange={(event) => {
+                                    const nextTagId = event.target.value;
+                                    if (!nextTagId || task.tagIds.includes(nextTagId)) {
+                                      return;
+                                    }
+
+                                    void updateTask(task.id, {
+                                      tagIds: [...task.tagIds, nextTagId],
+                                    });
+                                  }}
+                                  aria-label={`Add tag to ${task.title}`}
+                                >
+                                  <option value="">Add tag</option>
+                                  {tags
+                                    .filter((tag) => !task.tagIds.includes(tag.id))
+                                    .map((tag) => (
+                                      <option key={tag.id} value={tag.id}>
+                                        {tag.name}
+                                      </option>
+                                    ))}
+                                </select>
+                              </div>
+                            </div>
+
+                            <button className="min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>
+                              <p className="line-clamp-3 break-words text-sm text-black/55">{task.description}</p>
+                            </button>
+
+                            <input
+                              className="rounded-md border border-black/10 bg-white px-3 py-2 text-xs text-black/70 outline-none transition focus:border-black/35"
+                              type="date"
+                              value={task.dueDate}
+                              onChange={(event) => void updateTask(task.id, { dueDate: event.target.value })}
+                              aria-label={`Due date for ${task.title}`}
+                            />
+                            <select
+                              className={`rounded-md border px-3 py-2 text-xs outline-none transition focus:border-black/35 ${priorityTone(task.priority)}`}
+                              value={task.priority}
+                              onChange={(event) =>
+                                void updateTask(task.id, { priority: event.target.value as TaskPriority })
                               }
-
-                              void updateTask(task.id, {
-                                tagIds: [...task.tagIds, nextTagId],
-                              });
-                            }}
-                            aria-label={`Add tag to ${task.title}`}
-                          >
-                            <option value="">Add tag</option>
-                            {tags
-                              .filter((tag) => !task.tagIds.includes(tag.id))
-                              .map((tag) => (
-                                <option key={tag.id} value={tag.id}>
-                                  {tag.name}
+                              aria-label={`Priority for ${task.title}`}
+                            >
+                              {priorities.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
                                 </option>
                               ))}
-                          </select>
+                            </select>
+                            <select
+                              className={`rounded-md border px-3 py-2 text-xs outline-none transition focus:border-black/35 ${statusTone(task.status)}`}
+                              value={task.status}
+                              onChange={(event) =>
+                                void updateTask(task.id, { status: event.target.value as TaskStatus })
+                              }
+                              aria-label={`Status for ${task.title}`}
+                            >
+                              {statuses.map((option) => (
+                                <option key={option} value={option}>
+                                  {option}
+                                </option>
+                              ))}
+                            </select>
+                          </div>
+
+                          <div className="lg:hidden">
+                            <MobileListRow task={task} />
+                          </div>
                         </div>
-                      </div>
-
-                      <button className="min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>
-                        <p className="line-clamp-3 break-words text-sm text-black/55">{task.description}</p>
-                      </button>
-
-                      <input
-                        className="rounded-md border border-black/10 bg-white px-3 py-2 text-xs text-black/70 outline-none transition focus:border-black/35"
-                        type="date"
-                        value={task.dueDate}
-                        onChange={(event) => void updateTask(task.id, { dueDate: event.target.value })}
-                        aria-label={`Due date for ${task.title}`}
-                      />
-                      <select
-                        className={`rounded-md border px-3 py-2 text-xs outline-none transition focus:border-black/35 ${priorityTone(task.priority)}`}
-                        value={task.priority}
-                        onChange={(event) =>
-                          void updateTask(task.id, { priority: event.target.value as TaskPriority })
-                        }
-                        aria-label={`Priority for ${task.title}`}
-                      >
-                        {priorities.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                      <select
-                        className={`rounded-md border px-3 py-2 text-xs outline-none transition focus:border-black/35 ${statusTone(task.status)}`}
-                        value={task.status}
-                        onChange={(event) =>
-                          void updateTask(task.id, { status: event.target.value as TaskStatus })
-                        }
-                        aria-label={`Status for ${task.title}`}
-                      >
-                        {statuses.map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
+                      ))}
                     </div>
-
-                    <div className="lg:hidden">
-                      <MobileListRow task={task} />
-                    </div>
-                  </div>
-                ))}
-              </div>
+                  </section>
+                ))
+              )}
             </section>
           )}
         </section>
