@@ -1,6 +1,7 @@
 export type TaskStatus = "To do" | "In progress" | "Done";
 export type TaskPriority = "Low" | "Medium" | "High";
 export type ViewMode = "Board" | "List";
+export type ProjectStatus = "Planned" | "Active" | "On hold" | "Done";
 
 export type Profile = {
   id: string;
@@ -24,4 +25,24 @@ export type Task = {
   createdAt: string;
   createdById: string;
   tagIds: string[];
+};
+
+export type Note = {
+  id: string;
+  title: string;
+  content: string;
+  createdAt: string;
+  updatedAt: string;
+  createdById: string;
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  description: string;
+  status: ProjectStatus;
+  targetDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdById: string;
 };

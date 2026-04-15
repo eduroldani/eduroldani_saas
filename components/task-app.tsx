@@ -5,6 +5,7 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import { AppHeader } from "@/components/app-header";
 import { LoginScreen } from "@/components/login-screen";
 import {
+  createTagInDataStore,
   createTaskInDataStore,
   deleteTaskInDataStore,
   loadAppData,
@@ -24,9 +25,10 @@ import type { Profile, Tag, Task, TaskPriority, TaskStatus, ViewMode } from "@/l
 const statuses: TaskStatus[] = ["To do", "In progress", "Done"];
 const priorities: TaskPriority[] = ["Low", "Medium", "High"];
 const viewModes: ViewMode[] = ["Board", "List"];
+const buyTagNames = new Set(["buy", "compra"]);
 
-type SortMode = "status" | "priority" | "dueDate";
 type GroupMode = "none" | "tag";
+type DashboardSection = "tasks" | "buy";
 
 function todayDate() {
   return new Date().toISOString().slice(0, 10);
@@ -90,7 +92,7 @@ function Avatar({ profile, small = false }: { profile: Profile; small?: boolean 
   );
 }
 
-export function TaskApp() {
+export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
   const [viewMode, setViewMode] = useState<ViewMode>("List");
   const [title, setTitle] = useState("");
   const [description, setDescription] = useState("");
@@ -98,19 +100,33 @@ export function TaskApp() {
   const [priority, setPriority] = useState<TaskPriority>("Medium");
   const [dueDate, setDueDate] = useState(todayDate());
   const [selectedTagIds, setSelectedTagIds] = useState<string[]>([]);
+  const [newTaskTagPickerValue, setNewTaskTagPickerValue] = useState("");
   const [profile, setProfile] = useState<Profile>(mockProfile);
   const [tags, setTags] = useState<Tag[]>(mockTags);
   const [tasks, setTasks] = useState<Task[]>(mockTasks);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
-  const [sortMode, setSortMode] = useState<SortMode>("status");
   const [groupMode, setGroupMode] = useState<GroupMode>("none");
   const [tagFilter, setTagFilter] = useState<string>("all");
   const [isTagPickerOpen, setIsTagPickerOpen] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState("");
   const [isSavingProfileName, setIsSavingProfileName] = useState(false);
   const { authUser, authState } = useSupabaseAuth();
+
+  const buyTagIds = useMemo(
+    () =>
+      new Set(
+        tags
+          .filter((tag) => buyTagNames.has(tag.name.trim().toLowerCase()))
+          .map((tag) => tag.id),
+      ),
+    [tags],
+  );
+  const primaryBuyTagId = useMemo(
+    () => tags.find((tag) => buyTagNames.has(tag.name.trim().toLowerCase()))?.id ?? null,
+    [tags],
+  );
 
   useEffect(() => {
     let isMounted = true;
@@ -130,7 +146,11 @@ export function TaskApp() {
       setProfileNameDraft(appData.profile.name);
       setTags(appData.tags);
       setTasks(appData.tasks);
-      setSelectedTagIds(appData.tags[0] ? [appData.tags[0].id] : []);
+      if (section === "buy" && primaryBuyTagId) {
+        setSelectedTagIds([primaryBuyTagId]);
+      } else {
+        setSelectedTagIds([]);
+      }
       setIsLoading(false);
     }
 
@@ -143,22 +163,66 @@ export function TaskApp() {
     return () => {
       isMounted = false;
     };
-  }, [authState, authUser]);
+  }, [authState, authUser, primaryBuyTagId, section]);
 
-  const getTagName = (tagId: string) => tags.find((tag) => tag.id === tagId)?.name ?? tagId;
-
-  const handleTagSelection = (value: string) => {
-    if (!value) {
-      setSelectedTagIds([]);
+  useEffect(() => {
+    if (section !== "buy") {
       return;
     }
 
-    setSelectedTagIds(
-      value
-        .split(",")
-        .map((tagId) => tagId.trim())
-        .filter(Boolean),
+    if (primaryBuyTagId) {
+      setSelectedTagIds((currentTagIds) =>
+        currentTagIds.includes(primaryBuyTagId) ? currentTagIds : [primaryBuyTagId],
+      );
+    }
+  }, [primaryBuyTagId, section]);
+
+  const getTagName = (tagId: string) => tags.find((tag) => tag.id === tagId)?.name ?? tagId;
+
+  const handleTagSelectionForNewTask = async (value: string) => {
+    if (!value) {
+      setNewTaskTagPickerValue("");
+      return;
+    }
+
+    if (value === "__create_new_tag__") {
+      const rawName = window.prompt("New tag name");
+      if (!rawName) {
+        setNewTaskTagPickerValue("");
+        return;
+      }
+
+      const cleanedName = rawName.trim();
+      if (!cleanedName) {
+        setNewTaskTagPickerValue("");
+        return;
+      }
+
+      const existingTag = tags.find(
+        (tag) => tag.name.trim().toLowerCase() === cleanedName.toLowerCase(),
+      );
+
+      if (existingTag) {
+        setSelectedTagIds((currentTagIds) =>
+          currentTagIds.includes(existingTag.id) ? currentTagIds : [...currentTagIds, existingTag.id],
+        );
+        setNewTaskTagPickerValue("");
+        return;
+      }
+
+      const createdTag = await createTagInDataStore(cleanedName);
+      setTags((currentTags) => [...currentTags, createdTag]);
+      setSelectedTagIds((currentTagIds) =>
+        currentTagIds.includes(createdTag.id) ? currentTagIds : [...currentTagIds, createdTag.id],
+      );
+      setNewTaskTagPickerValue("");
+      return;
+    }
+
+    setSelectedTagIds((currentTagIds) =>
+      currentTagIds.includes(value) ? currentTagIds : [...currentTagIds, value],
     );
+    setNewTaskTagPickerValue("");
   };
 
   const handleCreateTask = async (event: FormEvent<HTMLFormElement>) => {
@@ -183,7 +247,13 @@ export function TaskApp() {
     setStatus("To do");
     setPriority("Medium");
     setDueDate(todayDate());
-    setSelectedTagIds(tags[0] ? [tags[0].id] : []);
+    setNewTaskTagPickerValue("");
+    if (section === "buy" && primaryBuyTagId) {
+      setSelectedTagIds([primaryBuyTagId]);
+      return;
+    }
+
+    setSelectedTagIds([]);
   };
 
   const updateTask = async (
@@ -244,41 +314,40 @@ export function TaskApp() {
     }
   };
 
+  const scopedTasks = useMemo(() => {
+    return tasks.filter((task) => {
+      const isBuyTask = task.tagIds.some((tagId) => buyTagIds.has(tagId));
+      return section === "buy" ? isBuyTask : !isBuyTask;
+    });
+  }, [buyTagIds, section, tasks]);
+
   const filteredTasks = useMemo(() => {
-    if (tagFilter === "all") {
-      return tasks;
+    if (section === "buy") {
+      return scopedTasks;
     }
 
-    return tasks.filter((task) => task.tagIds.includes(tagFilter));
-  }, [tagFilter, tasks]);
+    if (tagFilter === "all") {
+      return scopedTasks;
+    }
+
+    return scopedTasks.filter((task) => task.tagIds.includes(tagFilter));
+  }, [scopedTasks, section, tagFilter]);
 
   const sortedTasks = useMemo(() => {
-    const statusOrder = new Map(statuses.map((value, index) => [value, index]));
     const priorityOrder = new Map(
       ["High", "Medium", "Low"].map((value, index) => [value, index]),
     );
 
     return [...filteredTasks].sort((left, right) => {
-      if (sortMode === "priority") {
-        return (
-          (priorityOrder.get(left.priority) ?? 0) - (priorityOrder.get(right.priority) ?? 0)
-        );
-      }
-
-      if (sortMode === "dueDate") {
-        return new Date(left.dueDate).getTime() - new Date(right.dueDate).getTime();
-      }
-
-      const leftOrder = statusOrder.get(left.status) ?? 0;
-      const rightOrder = statusOrder.get(right.status) ?? 0;
-
-      if (leftOrder !== rightOrder) {
-        return leftOrder - rightOrder;
+      const leftPriority = priorityOrder.get(left.priority) ?? 99;
+      const rightPriority = priorityOrder.get(right.priority) ?? 99;
+      if (leftPriority !== rightPriority) {
+        return leftPriority - rightPriority;
       }
 
       return new Date(right.createdAt).getTime() - new Date(left.createdAt).getTime();
     });
-  }, [filteredTasks, sortMode]);
+  }, [filteredTasks]);
 
   const groupedTasksByTag = useMemo(() => {
     return tags
@@ -381,6 +450,56 @@ export function TaskApp() {
     </article>
   );
 
+  const MobileListRow = ({ task }: { task: Task }) => (
+    <div className={`flex items-center gap-3 rounded-md border px-3 py-3 ${statusContainerTone(task.status)}`}>
+      <button className="min-w-0 flex-1 text-left" type="button" onClick={() => setSelectedTask(task)}>
+        <p className="truncate text-sm font-medium">{task.title}</p>
+        <p className="mt-1 text-xs text-black/50">{task.status}</p>
+      </button>
+
+      <button
+        className={`rounded-md border px-3 py-2 text-xs font-medium transition ${
+          task.status === "Done"
+            ? "border-[#cfe5cf] bg-[#eef8ee] text-[#2f5b38]"
+            : "border-black/15 bg-white text-black/70 hover:border-black/30"
+        }`}
+        type="button"
+        onClick={() => void updateTask(task.id, { status: "Done" })}
+        disabled={task.status === "Done"}
+      >
+        {task.status === "Done" ? "Done" : "Mark done"}
+      </button>
+    </div>
+  );
+
+  const BuyListRow = ({ task }: { task: Task }) => (
+    <label
+      className={`flex items-center gap-3 rounded-md border px-3 py-3 ${statusContainerTone(task.status)}`}
+    >
+      <input
+        className="h-4 w-4 rounded border-black/20 accent-black"
+        type="checkbox"
+        checked={task.status === "Done"}
+        onChange={(event) =>
+          void updateTask(task.id, { status: event.target.checked ? "Done" : "To do" })
+        }
+        aria-label={`Mark ${task.title} as done`}
+      />
+      <button
+        className="min-w-0 flex-1 text-left"
+        type="button"
+        onClick={() => setSelectedTask(task)}
+      >
+        <p className={`truncate text-sm ${task.status === "Done" ? "text-black/45 line-through" : "text-black"}`}>
+          {task.title}
+        </p>
+      </button>
+      <span className={`rounded-md border px-2 py-1 text-[11px] ${statusTone(task.status)}`}>
+        {task.status === "Done" ? "Done" : "Pending"}
+      </span>
+    </label>
+  );
+
   if (authState === "loading" || isLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center px-4 py-8 sm:px-6">
@@ -460,16 +579,37 @@ export function TaskApp() {
                 />
                 <select
                   className="rounded-md border border-black/10 bg-white px-3 py-3 text-xs text-black outline-none transition focus:border-black/40"
-                  value={selectedTagIds.join(",")}
-                  onChange={(event) => handleTagSelection(event.target.value)}
+                  value={newTaskTagPickerValue}
+                  onChange={(event) => void handleTagSelectionForNewTask(event.target.value)}
                 >
-                  <option value="">Tag</option>
-                  {tags.map((tag) => (
-                    <option key={tag.id} value={tag.id}>
-                      {tag.name}
-                    </option>
-                  ))}
+                  <option value="">Add tag</option>
+                  {tags
+                    .filter((tag) => !selectedTagIds.includes(tag.id))
+                    .map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  <option value="__create_new_tag__">+ Create new tag</option>
                 </select>
+              </div>
+
+              <div className="flex flex-wrap gap-2">
+                {selectedTagIds.map((tagId) => (
+                  <button
+                    key={tagId}
+                    className="group inline-flex items-center gap-2 rounded-md border border-black/10 bg-white px-2 py-1 text-[11px] text-black/60"
+                    type="button"
+                    onClick={() =>
+                      setSelectedTagIds((currentTagIds) =>
+                        currentTagIds.filter((currentTagId) => currentTagId !== tagId),
+                      )
+                    }
+                  >
+                    <span>{getTagName(tagId)}</span>
+                    <span className="opacity-0 transition group-hover:opacity-100">x</span>
+                  </button>
+                ))}
               </div>
 
               <div className="flex justify-start">
@@ -483,41 +623,54 @@ export function TaskApp() {
             </form>
           </section>
 
-          <section className="rounded-lg border border-black/10 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-5">
-            <div className="grid gap-3 md:grid-cols-3">
-              <select
-                className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40"
-                value={sortMode}
-                onChange={(event) => setSortMode(event.target.value as SortMode)}
-              >
-                <option value="status">Sort by status</option>
-                <option value="priority">Sort by priority</option>
-                <option value="dueDate">Sort by due date</option>
-              </select>
-              <select
-                className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40"
-                value={tagFilter}
-                onChange={(event) => setTagFilter(event.target.value)}
-              >
-                <option value="all">All tags</option>
-                {tags.map((tag) => (
-                  <option key={tag.id} value={tag.id}>
-                    {tag.name}
-                  </option>
-                ))}
-              </select>
-              <select
-                className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40"
-                value={groupMode}
-                onChange={(event) => setGroupMode(event.target.value as GroupMode)}
-              >
-                <option value="none">No grouping</option>
-                <option value="tag">Group by tag</option>
-              </select>
-            </div>
-          </section>
+          {section === "tasks" ? (
+            <section className="rounded-lg border border-black/10 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-5">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="rounded-md border border-black/10 bg-[#fafafa] px-4 py-3 text-xs text-black/55">
+                  Priority: High to Low · Newest first
+                </div>
+                <select
+                  className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40"
+                  value={tagFilter}
+                  onChange={(event) => setTagFilter(event.target.value)}
+                >
+                  <option value="all">All tags</option>
+                  {tags
+                    .filter((tag) => !buyTagIds.has(tag.id))
+                    .map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                </select>
+                <select
+                  className="rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40"
+                  value={groupMode}
+                  onChange={(event) => setGroupMode(event.target.value as GroupMode)}
+                >
+                  <option value="none">No grouping</option>
+                  <option value="tag">Group by tag</option>
+                </select>
+              </div>
+            </section>
+          ) : (
+            <section className="rounded-lg border border-black/10 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-5">
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs uppercase tracking-[0.18em] text-black/50">Buy List</p>
+                <p className="text-xs text-black/50">{sortedTasks.length} items</p>
+              </div>
+            </section>
+          )}
 
-          {groupMode === "tag" ? (
+          {section === "buy" ? (
+            <section className="space-y-3 rounded-lg border border-black/10 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)]">
+              {sortedTasks.length === 0 ? (
+                <p className="text-sm text-black/55">No items in buy list yet.</p>
+              ) : (
+                sortedTasks.map((task) => <BuyListRow key={task.id} task={task} />)
+              )}
+            </section>
+          ) : groupMode === "tag" ? (
             <section className="space-y-4">
               {groupedTasksByTag.map((group) => (
                 <section
@@ -583,12 +736,48 @@ export function TaskApp() {
                 {sortedTasks.map((task) => (
                   <div key={task.id} className={`px-4 py-4 ${statusContainerTone(task.status)}`}>
                     <div className="hidden gap-3 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.9fr)_120px_120px_120px] lg:items-start">
-                      <button className="min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>
-                        <p className="truncate text-sm font-medium">{task.title}</p>
-                        <div className="mt-2">
-                          <TaskTags tagIds={task.tagIds} />
+                      <div className="min-w-0 space-y-2">
+                        <button className="w-full min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>
+                          <p className="truncate text-sm font-medium">{task.title}</p>
+                        </button>
+
+                        <div className="flex flex-wrap items-center gap-2">
+                          <TaskTags
+                            tagIds={task.tagIds}
+                            removable
+                            onRemove={(tagId) =>
+                              void updateTask(task.id, {
+                                tagIds: task.tagIds.filter((currentTagId) => currentTagId !== tagId),
+                              })
+                            }
+                          />
+
+                          <select
+                            className="h-[30px] w-auto max-w-full rounded-md border border-black/10 bg-white px-2.5 text-xs text-black/70 outline-none transition focus:border-black/35"
+                            value=""
+                            onChange={(event) => {
+                              const nextTagId = event.target.value;
+                              if (!nextTagId || task.tagIds.includes(nextTagId)) {
+                                return;
+                              }
+
+                              void updateTask(task.id, {
+                                tagIds: [...task.tagIds, nextTagId],
+                              });
+                            }}
+                            aria-label={`Add tag to ${task.title}`}
+                          >
+                            <option value="">Add tag</option>
+                            {tags
+                              .filter((tag) => !task.tagIds.includes(tag.id))
+                              .map((tag) => (
+                                <option key={tag.id} value={tag.id}>
+                                  {tag.name}
+                                </option>
+                              ))}
+                          </select>
                         </div>
-                      </button>
+                      </div>
 
                       <button className="min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>
                         <p className="line-clamp-3 break-words text-sm text-black/55">{task.description}</p>
@@ -632,7 +821,7 @@ export function TaskApp() {
                     </div>
 
                     <div className="lg:hidden">
-                      <TaskCard task={task} compact />
+                      <MobileListRow task={task} />
                     </div>
                   </div>
                 ))}

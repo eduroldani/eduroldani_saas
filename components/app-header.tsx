@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
@@ -25,20 +26,48 @@ export function AppHeader({
   onProfileClick: () => void;
 }) {
   const pathname = usePathname();
+  const [isMenuOpen, setIsMenuOpen] = useState(false);
+  const navItems = [
+    { href: "/", label: "Tasks" },
+    { href: "/buy", label: "Buy" },
+    { href: "/notes", label: "Notes" },
+    { href: "/projects", label: "Projects" },
+    { href: "/tags", label: "Tags" },
+  ];
+  const pageTitle =
+    pathname === "/buy"
+      ? "Buy"
+      : pathname === "/tags"
+        ? "Tags"
+        : pathname === "/notes"
+          ? "Notes"
+          : pathname === "/projects"
+            ? "Projects"
+            : "Tasks";
+
+  useEffect(() => {
+    setIsMenuOpen(false);
+  }, [pathname]);
 
   return (
     <header className="rounded-lg border border-black/10 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-5">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+      <div className="flex items-center justify-between gap-3">
         <div className="space-y-1">
-          <h1 className="text-2xl font-semibold sm:text-3xl">edu roldani</h1>
+          <h1 className="text-2xl font-semibold sm:text-3xl">{pageTitle}</h1>
         </div>
 
         <div className="flex items-center gap-3">
-          <nav className="flex rounded-md border border-black/10 bg-[#fafafa] p-1">
-            {[
-              { href: "/", label: "Tasks" },
-              { href: "/tags", label: "Tags" },
-            ].map((item) => {
+          <button
+            className="flex h-10 w-10 items-center justify-center rounded-md border border-black/10 bg-[#fafafa] text-sm text-black/70 transition hover:border-black/30 sm:hidden"
+            type="button"
+            aria-label={isMenuOpen ? "Close menu" : "Open menu"}
+            onClick={() => setIsMenuOpen((current) => !current)}
+          >
+            {isMenuOpen ? "X" : "M"}
+          </button>
+
+          <nav className="hidden rounded-md border border-black/10 bg-[#fafafa] p-1 sm:flex">
+            {navItems.map((item) => {
               const isActive = pathname === item.href;
 
               return (
@@ -65,6 +94,26 @@ export function AppHeader({
           </button>
         </div>
       </div>
+
+      {isMenuOpen ? (
+        <nav className="mt-3 flex flex-col gap-2 rounded-md border border-black/10 bg-[#fafafa] p-2 sm:hidden">
+          {navItems.map((item) => {
+            const isActive = pathname === item.href;
+
+            return (
+              <Link
+                key={item.href}
+                href={item.href}
+                className={`rounded-md px-3 py-2 text-sm font-medium transition ${
+                  isActive ? "bg-black text-white" : "text-black/65"
+                }`}
+              >
+                {item.label}
+              </Link>
+            );
+          })}
+        </nav>
+      ) : null}
     </header>
   );
 }

@@ -28,3 +28,23 @@ create table if not exists task_tags (
   tag_id text not null references tags(id) on delete cascade,
   primary key (task_id, tag_id)
 );
+
+create table if not exists notes (
+  id text primary key,
+  title text not null,
+  content text,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by_id text not null references profiles(id) on delete cascade
+);
+
+create table if not exists projects (
+  id text primary key,
+  name text not null,
+  description text,
+  status text not null check (status in ('Planned', 'Active', 'On hold', 'Done')),
+  target_date date,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by_id text not null references profiles(id) on delete cascade
+);

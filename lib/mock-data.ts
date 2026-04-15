@@ -1,4 +1,4 @@
-import type { Profile, Tag, Task } from "@/lib/task-types";
+import type { Note, Profile, Project, Tag, Task } from "@/lib/task-types";
 
 export const mockProfile: Profile = {
   id: "usr_001",
@@ -49,5 +49,29 @@ export const mockTasks: Task[] = [
     createdAt: "2026-04-11",
     createdById: "usr_001",
     tagIds: ["tag_admin"],
+  },
+];
+
+export const mockNotes: Note[] = [
+  {
+    id: "note_1",
+    title: "Ideas",
+    content: "List quick thoughts here before turning them into tasks.",
+    createdAt: "2026-04-14T09:00:00.000Z",
+    updatedAt: "2026-04-14T09:00:00.000Z",
+    createdById: "usr_001",
+  },
+];
+
+export const mockProjects: Project[] = [
+  {
+    id: "project_1",
+    name: "Internal Ops Setup",
+    description: "Define the long-term structure and weekly process.",
+    status: "Active",
+    targetDate: "2026-06-01",
+    createdAt: "2026-04-10T10:30:00.000Z",
+    updatedAt: "2026-04-14T08:30:00.000Z",
+    createdById: "usr_001",
   },
 ];

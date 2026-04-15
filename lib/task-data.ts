@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
-import { mockProfile, mockTags, mockTasks } from "@/lib/mock-data";
+import { mockNotes, mockProfile, mockProjects, mockTags, mockTasks } from "@/lib/mock-data";
 import { getSupabaseBrowserClient, hasSupabaseEnv } from "@/lib/supabase";
-import type { Profile, Tag, Task, TaskPriority, TaskStatus } from "@/lib/task-types";
+import type { Note, Profile, Project, ProjectStatus, Tag, Task, TaskPriority, TaskStatus } from "@/lib/task-types";
 
 type TaskRow = {
   id: number;
@@ -27,10 +27,42 @@ type TagRow = {
   name: string;
 };
 
+type NoteRow = {
+  id: string;
+  title: string;
+  content: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_id: string;
+};
+
+type ProjectRow = {
+  id: string;
+  name: string;
+  description: string | null;
+  status: ProjectStatus;
+  target_date: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_id: string;
+};
+
 export type AppData = {
   profile: Profile;
   tags: Tag[];
   tasks: Task[];
+  source: "supabase" | "mock";
+};
+
+export type NotesData = {
+  profile: Profile;
+  notes: Note[];
+  source: "supabase" | "mock";
+};
+
+export type ProjectsData = {
+  profile: Profile;
+  projects: Project[];
   source: "supabase" | "mock";
 };
 
@@ -79,6 +111,30 @@ function mapTask(row: TaskRow): Task {
     createdAt: row.created_at,
     createdById: row.created_by_id,
     tagIds: row.task_tags?.map((entry) => entry.tag_id) ?? [],
+  };
+}
+
+function mapNote(row: NoteRow): Note {
+  return {
+    id: row.id,
+    title: row.title,
+    content: row.content ?? "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdById: row.created_by_id,
+  };
+}
+
+function mapProject(row: ProjectRow): Project {
+  return {
+    id: row.id,
+    name: row.name,
+    description: row.description ?? "",
+    status: row.status,
+    targetDate: row.target_date,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdById: row.created_by_id,
   };
 }
 
@@ -334,6 +390,10 @@ function createTagId(name: string) {
   return `tag_${name.toLowerCase().trim().replace(/\s+/g, "_").replace(/[^a-z0-9_]/g, "")}`;
 }
 
+function createEntityId(prefix: string) {
+  return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
 export async function createTagInDataStore(name: string) {
   const trimmed = name.trim();
   const nextTag = {
@@ -423,4 +483,274 @@ export async function updateProfileInDataStore(input: { profileId: string; name:
   }
 
   return mapProfile(data as ProfileRow);
+}
+
+export async function loadNotesData(user?: User | null): Promise<NotesData> {
+  if (!hasSupabaseEnv()) {
+    return {
+      profile: mockProfile,
+      notes: mockNotes,
+      source: "mock",
+    };
+  }
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    return {
+      profile: mockProfile,
+      notes: mockNotes,
+      source: "mock",
+    };
+  }
+
+  if (!user) {
+    throw new Error("No authenticated user");
+  }
+
+  const ensuredProfile = await ensureProfileForUser(user, supabase);
+  const { data, error } = await supabase
+    .from("notes")
+    .select("id,title,content,created_at,updated_at,created_by_id")
+    .order("updated_at", { ascending: false });
+
+  if (error || !data) {
+    return {
+      profile: ensuredProfile,
+      notes: mockNotes,
+      source: "mock",
+    };
+  }
+
+  return {
+    profile: ensuredProfile,
+    notes: (data as NoteRow[]).map(mapNote),
+    source: "supabase",
+  };
+}
+
+export async function createNoteInDataStore(input: {
+  title: string;
+  content: string;
+  createdById: string;
+}) {
+  const noteId = createEntityId("note");
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return {
+      note: {
+        id: noteId,
+        title: input.title,
+        content: input.content,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdById: input.createdById,
+      } satisfies Note,
+      source: "mock" as const,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("notes")
+    .insert({
+      id: noteId,
+      title: input.title,
+      content: input.content,
+      created_by_id: input.createdById,
+    })
+    .select("id,title,content,created_at,updated_at,created_by_id")
+    .single();
+
+  if (error || !data) {
+    throw error ?? new Error("Could not create note");
+  }
+
+  return {
+    note: mapNote(data as NoteRow),
+    source: "supabase" as const,
+  };
+}
+
+export async function updateNoteInDataStore(
+  noteId: string,
+  updates: Partial<Pick<Note, "title" | "content">>,
+) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return { source: "mock" as const };
+  }
+
+  const payload: Record<string, string> = {};
+  if (updates.title !== undefined) {
+    payload.title = updates.title;
+  }
+  if (updates.content !== undefined) {
+    payload.content = updates.content;
+  }
+  payload.updated_at = new Date().toISOString();
+
+  if (Object.keys(payload).length === 0) {
+    return { source: "supabase" as const };
+  }
+
+  const { error } = await supabase.from("notes").update(payload).eq("id", noteId);
+  if (error) {
+    throw error;
+  }
+
+  return { source: "supabase" as const };
+}
+
+export async function deleteNoteInDataStore(noteId: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return { source: "mock" as const };
+  }
+
+  const { error } = await supabase.from("notes").delete().eq("id", noteId);
+  if (error) {
+    throw error;
+  }
+
+  return { source: "supabase" as const };
+}
+
+export async function loadProjectsData(user?: User | null): Promise<ProjectsData> {
+  if (!hasSupabaseEnv()) {
+    return {
+      profile: mockProfile,
+      projects: mockProjects,
+      source: "mock",
+    };
+  }
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    return {
+      profile: mockProfile,
+      projects: mockProjects,
+      source: "mock",
+    };
+  }
+
+  if (!user) {
+    throw new Error("No authenticated user");
+  }
+
+  const ensuredProfile = await ensureProfileForUser(user, supabase);
+  const { data, error } = await supabase
+    .from("projects")
+    .select("id,name,description,status,target_date,created_at,updated_at,created_by_id")
+    .order("updated_at", { ascending: false });
+
+  if (error || !data) {
+    return {
+      profile: ensuredProfile,
+      projects: mockProjects,
+      source: "mock",
+    };
+  }
+
+  return {
+    profile: ensuredProfile,
+    projects: (data as ProjectRow[]).map(mapProject),
+    source: "supabase",
+  };
+}
+
+export async function createProjectInDataStore(input: {
+  name: string;
+  description: string;
+  status: ProjectStatus;
+  targetDate: string | null;
+  createdById: string;
+}) {
+  const projectId = createEntityId("project");
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return {
+      project: {
+        id: projectId,
+        name: input.name,
+        description: input.description,
+        status: input.status,
+        targetDate: input.targetDate,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        createdById: input.createdById,
+      } satisfies Project,
+      source: "mock" as const,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("projects")
+    .insert({
+      id: projectId,
+      name: input.name,
+      description: input.description,
+      status: input.status,
+      target_date: input.targetDate,
+      created_by_id: input.createdById,
+    })
+    .select("id,name,description,status,target_date,created_at,updated_at,created_by_id")
+    .single();
+
+  if (error || !data) {
+    throw error ?? new Error("Could not create project");
+  }
+
+  return {
+    project: mapProject(data as ProjectRow),
+    source: "supabase" as const,
+  };
+}
+
+export async function updateProjectInDataStore(
+  projectId: string,
+  updates: Partial<Pick<Project, "name" | "description" | "status" | "targetDate">>,
+) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return { source: "mock" as const };
+  }
+
+  const payload: Record<string, string | null> = {};
+  if (updates.name !== undefined) {
+    payload.name = updates.name;
+  }
+  if (updates.description !== undefined) {
+    payload.description = updates.description;
+  }
+  if (updates.status !== undefined) {
+    payload.status = updates.status;
+  }
+  if (updates.targetDate !== undefined) {
+    payload.target_date = updates.targetDate;
+  }
+  payload.updated_at = new Date().toISOString();
+
+  if (Object.keys(payload).length === 0) {
+    return { source: "supabase" as const };
+  }
+
+  const { error } = await supabase.from("projects").update(payload).eq("id", projectId);
+  if (error) {
+    throw error;
+  }
+
+  return { source: "supabase" as const };
+}
+
+export async function deleteProjectInDataStore(projectId: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return { source: "mock" as const };
+  }
+
+  const { error } = await supabase.from("projects").delete().eq("id", projectId);
+  if (error) {
+    throw error;
+  }
+
+  return { source: "supabase" as const };
 }
