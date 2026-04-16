@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
 import { LoginScreen } from "@/components/login-screen";
+import { SavedBadge } from "@/components/saved-badge";
 import { SimpleRichEditor } from "@/components/simple-rich-editor";
 import {
   createNoteInDataStore,
@@ -39,8 +40,10 @@ export function NotesApp() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [isSavedVisible, setIsSavedVisible] = useState(false);
   const { authUser, authState } = useSupabaseAuth();
   const pendingSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedBadgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -78,6 +81,9 @@ export function NotesApp() {
       if (pendingSaveTimeout.current) {
         clearTimeout(pendingSaveTimeout.current);
       }
+      if (savedBadgeTimeoutRef.current) {
+        clearTimeout(savedBadgeTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -85,6 +91,17 @@ export function NotesApp() {
     () => notes.find((note) => note.id === selectedNoteId) ?? null,
     [notes, selectedNoteId],
   );
+
+  const flashSavedBadge = () => {
+    if (savedBadgeTimeoutRef.current) {
+      clearTimeout(savedBadgeTimeoutRef.current);
+    }
+
+    setIsSavedVisible(true);
+    savedBadgeTimeoutRef.current = setTimeout(() => {
+      setIsSavedVisible(false);
+    }, 1600);
+  };
 
   const saveNoteChanges = (noteId: string, updates: { title?: string; content?: string }) => {
     if (pendingSaveTimeout.current) {
@@ -96,6 +113,7 @@ export function NotesApp() {
       try {
         await updateNoteInDataStore(noteId, updates);
         setSaveState("saved");
+        flashSavedBadge();
       } catch {
         setSaveState("error");
       }
@@ -112,6 +130,7 @@ export function NotesApp() {
     setNotes((current) => [created.note, ...current]);
     setSelectedNoteId(created.note.id);
     setSaveState("idle");
+    flashSavedBadge();
   };
 
   const handleDeleteNote = async (noteId: string) => {
@@ -129,6 +148,7 @@ export function NotesApp() {
     });
 
     await deleteNoteInDataStore(noteId);
+    flashSavedBadge();
   };
 
   const handleLogout = async () => {
@@ -154,6 +174,7 @@ export function NotesApp() {
 
   return (
     <>
+      <SavedBadge visible={isSavedVisible} />
       <main className="min-h-screen px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <section className="mx-auto flex max-w-6xl flex-col gap-4 sm:gap-5">
           <AppHeader profile={profile} onProfileClick={() => setIsProfileOpen(true)} />

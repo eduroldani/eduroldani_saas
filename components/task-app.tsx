@@ -1,9 +1,10 @@
 "use client";
 
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
 import { LoginScreen } from "@/components/login-screen";
+import { SavedBadge } from "@/components/saved-badge";
 import {
   createTagInDataStore,
   createTaskInDataStore,
@@ -112,9 +113,12 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
   const [groupMode, setGroupMode] = useState<GroupMode>("none");
   const [showDone, setShowDone] = useState(false);
   const [tagFilter, setTagFilter] = useState<string>("all");
+  const [activeTaskTagPickerId, setActiveTaskTagPickerId] = useState<number | null>(null);
   const [isTagPickerOpen, setIsTagPickerOpen] = useState(false);
   const [profileNameDraft, setProfileNameDraft] = useState("");
   const [isSavingProfileName, setIsSavingProfileName] = useState(false);
+  const [isSavedVisible, setIsSavedVisible] = useState(false);
+  const savedBadgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const { authUser, authState } = useSupabaseAuth();
 
   const buyTagIds = useMemo(
@@ -182,6 +186,17 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
 
   const getTagName = (tagId: string) => tags.find((tag) => tag.id === tagId)?.name ?? tagId;
 
+  const flashSavedBadge = () => {
+    if (savedBadgeTimeoutRef.current) {
+      clearTimeout(savedBadgeTimeoutRef.current);
+    }
+
+    setIsSavedVisible(true);
+    savedBadgeTimeoutRef.current = setTimeout(() => {
+      setIsSavedVisible(false);
+    }, 1600);
+  };
+
   const handleTagSelectionForNewTask = async (value: string) => {
     if (!value) {
       setNewTaskTagPickerValue("");
@@ -248,6 +263,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
     });
 
     setTasks((currentTasks) => [created.task, ...currentTasks]);
+    flashSavedBadge();
     setTitle("");
     setDescription("");
     setStatus("To do");
@@ -282,6 +298,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
     );
 
     await updateTaskInDataStore(taskId, updates);
+    flashSavedBadge();
   };
 
   const handleDeleteTask = async (taskId: number) => {
@@ -293,6 +310,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
     setTasks((currentTasks) => currentTasks.filter((task) => task.id !== taskId));
     setSelectedTask((currentTask) => (currentTask?.id === taskId ? null : currentTask));
     await deleteTaskInDataStore(taskId);
+    flashSavedBadge();
   };
 
   const handleLogout = async () => {
@@ -316,10 +334,19 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
       });
       setProfile(updatedProfile);
       setProfileNameDraft(updatedProfile.name);
+      flashSavedBadge();
     } finally {
       setIsSavingProfileName(false);
     }
   };
+
+  useEffect(() => {
+    return () => {
+      if (savedBadgeTimeoutRef.current) {
+        clearTimeout(savedBadgeTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const scopedTasks = useMemo(() => {
     return tasks.filter((task) => {
@@ -541,6 +568,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
 
   return (
     <>
+      <SavedBadge visible={isSavedVisible} />
       <main className="min-h-screen px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <section className="mx-auto flex max-w-6xl flex-col gap-4 sm:gap-5">
           <AppHeader
@@ -837,31 +865,41 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
                                   }
                                 />
 
-                                <select
-                                  className="h-[30px] w-auto max-w-full rounded-md border border-black/10 bg-white px-2.5 text-xs text-black/70 outline-none transition focus:border-black/35"
-                                  value=""
-                                  onChange={(event) => {
-                                    const nextTagId = event.target.value;
-                                    if (!nextTagId || task.tagIds.includes(nextTagId)) {
-                                      return;
-                                    }
-
-                                    void updateTask(task.id, {
-                                      tagIds: [...task.tagIds, nextTagId],
-                                    });
-                                  }}
+                                <button
+                                  className="flex h-7 w-7 items-center justify-center rounded-md border border-black/10 bg-white text-xs text-black/65 transition hover:border-black/30"
+                                  type="button"
+                                  onClick={() =>
+                                    setActiveTaskTagPickerId((current) =>
+                                      current === task.id ? null : task.id,
+                                    )
+                                  }
                                   aria-label={`Add tag to ${task.title}`}
                                 >
-                                  <option value="">Add tag</option>
+                                  +
+                                </button>
+                              </div>
+
+                              {activeTaskTagPickerId === task.id ? (
+                                <div className="flex flex-wrap gap-2">
                                   {tags
                                     .filter((tag) => !task.tagIds.includes(tag.id))
                                     .map((tag) => (
-                                      <option key={tag.id} value={tag.id}>
+                                      <button
+                                        key={tag.id}
+                                        className="rounded-md border border-black/10 bg-white px-3 py-2 text-xs text-black/65 transition hover:border-black/30"
+                                        type="button"
+                                        onClick={() => {
+                                          void updateTask(task.id, {
+                                            tagIds: [...task.tagIds, tag.id],
+                                          });
+                                          setActiveTaskTagPickerId(null);
+                                        }}
+                                      >
                                         {tag.name}
-                                      </option>
+                                      </button>
                                     ))}
-                                </select>
-                              </div>
+                                </div>
+                              ) : null}
                             </div>
 
                             <button className="min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>

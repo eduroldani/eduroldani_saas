@@ -4,6 +4,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 
 import { AppHeader } from "@/components/app-header";
 import { LoginScreen } from "@/components/login-screen";
+import { SavedBadge } from "@/components/saved-badge";
 import { SimpleRichEditor } from "@/components/simple-rich-editor";
 import {
   createProjectInDataStore,
@@ -40,8 +41,10 @@ export function ProjectsApp() {
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [saveState, setSaveState] = useState<SaveState>("idle");
+  const [isSavedVisible, setIsSavedVisible] = useState(false);
   const { authUser, authState } = useSupabaseAuth();
   const pendingSaveTimeout = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const savedBadgeTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     let isMounted = true;
@@ -79,6 +82,9 @@ export function ProjectsApp() {
       if (pendingSaveTimeout.current) {
         clearTimeout(pendingSaveTimeout.current);
       }
+      if (savedBadgeTimeoutRef.current) {
+        clearTimeout(savedBadgeTimeoutRef.current);
+      }
     };
   }, []);
 
@@ -86,6 +92,17 @@ export function ProjectsApp() {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
   );
+
+  const flashSavedBadge = () => {
+    if (savedBadgeTimeoutRef.current) {
+      clearTimeout(savedBadgeTimeoutRef.current);
+    }
+
+    setIsSavedVisible(true);
+    savedBadgeTimeoutRef.current = setTimeout(() => {
+      setIsSavedVisible(false);
+    }, 1600);
+  };
 
   const saveProjectChanges = (
     projectId: string,
@@ -100,6 +117,7 @@ export function ProjectsApp() {
       try {
         await updateProjectInDataStore(projectId, updates);
         setSaveState("saved");
+        flashSavedBadge();
       } catch {
         setSaveState("error");
       }
@@ -118,6 +136,7 @@ export function ProjectsApp() {
     setProjects((current) => [created.project, ...current]);
     setSelectedProjectId(created.project.id);
     setSaveState("idle");
+    flashSavedBadge();
   };
 
   const handleDeleteProject = async (projectId: string) => {
@@ -135,6 +154,7 @@ export function ProjectsApp() {
     });
 
     await deleteProjectInDataStore(projectId);
+    flashSavedBadge();
   };
 
   const handleLogout = async () => {
@@ -160,6 +180,7 @@ export function ProjectsApp() {
 
   return (
     <>
+      <SavedBadge visible={isSavedVisible} />
       <main className="min-h-screen px-4 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-8">
         <section className="mx-auto flex max-w-6xl flex-col gap-4 sm:gap-5">
           <AppHeader profile={profile} onProfileClick={() => setIsProfileOpen(true)} />
