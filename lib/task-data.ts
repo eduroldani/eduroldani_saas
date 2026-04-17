@@ -1,7 +1,7 @@
 import type { User } from "@supabase/supabase-js";
-import { mockNotes, mockProfile, mockProjects, mockTags, mockTasks } from "@/lib/mock-data";
+import { mockClients, mockNotes, mockProfile, mockProjects, mockTags, mockTasks } from "@/lib/mock-data";
 import { getSupabaseBrowserClient, hasSupabaseEnv } from "@/lib/supabase";
-import type { Note, Profile, Project, ProjectStatus, Tag, Task, TaskPriority, TaskStatus } from "@/lib/task-types";
+import type { Client, ClientNote, Note, Profile, Project, ProjectStatus, Tag, Task, TaskPriority, TaskStatus } from "@/lib/task-types";
 
 type TaskRow = {
   id: number;
@@ -12,6 +12,9 @@ type TaskRow = {
   due_date: string;
   created_at: string;
   created_by_id: string;
+  client_id: string | null;
+  estimated_hours: number | null;
+  worked_hours: number | null;
   task_tags?: Array<{ tag_id: string }>;
 };
 
@@ -27,11 +30,25 @@ type TagRow = {
   name: string;
 };
 
+type ClientRow = {
+  id: string;
+  name: string;
+  created_at: string;
+  updated_at: string;
+};
+
 type NoteRow = {
   id: string;
   title: string;
   content: string | null;
   created_at: string;
+  updated_at: string;
+  created_by_id: string;
+};
+
+type ClientNoteRow = {
+  client_id: string;
+  content: string | null;
   updated_at: string;
   created_by_id: string;
 };
@@ -63,6 +80,12 @@ export type NotesData = {
 export type ProjectsData = {
   profile: Profile;
   projects: Project[];
+  source: "supabase" | "mock";
+};
+
+export type ClientsData = {
+  profile: Profile;
+  clients: Client[];
   source: "supabase" | "mock";
 };
 
@@ -110,7 +133,19 @@ function mapTask(row: TaskRow): Task {
     dueDate: row.due_date,
     createdAt: row.created_at,
     createdById: row.created_by_id,
+    clientId: row.client_id,
+    estimatedHours: row.estimated_hours,
+    workedHours: row.worked_hours ?? 0,
     tagIds: row.task_tags?.map((entry) => entry.tag_id) ?? [],
+  };
+}
+
+function mapClient(row: ClientRow): Client {
+  return {
+    id: row.id,
+    name: row.name,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
   };
 }
 
@@ -120,6 +155,15 @@ function mapNote(row: NoteRow): Note {
     title: row.title,
     content: row.content ?? "",
     createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdById: row.created_by_id,
+  };
+}
+
+function mapClientNote(row: ClientNoteRow): ClientNote {
+  return {
+    clientId: row.client_id,
+    content: row.content ?? "",
     updatedAt: row.updated_at,
     createdById: row.created_by_id,
   };
@@ -225,7 +269,7 @@ export async function loadAppData(user?: User | null): Promise<AppData> {
     supabase.from("tags").select("id,name").order("name", { ascending: true }),
     supabase
       .from("tasks")
-      .select("id,title,description,status,priority,due_date,created_at,created_by_id,task_tags(tag_id)")
+      .select("id,title,description,status,priority,due_date,created_at,created_by_id,client_id,estimated_hours,worked_hours,task_tags(tag_id)")
       .order("created_at", { ascending: false }),
   ]);
 
@@ -254,6 +298,9 @@ export async function createTaskInDataStore(input: {
   dueDate: string;
   createdById: string;
   tagIds: string[];
+  clientId?: string | null;
+  estimatedHours?: number | null;
+  workedHours?: number;
 }) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase || !hasSupabaseEnv()) {
@@ -268,6 +315,9 @@ export async function createTaskInDataStore(input: {
         createdAt: new Date().toISOString(),
         createdById: input.createdById,
         tagIds: input.tagIds,
+        clientId: input.clientId ?? null,
+        estimatedHours: input.estimatedHours ?? null,
+        workedHours: input.workedHours ?? 0,
       } satisfies Task,
       source: "mock" as const,
     };
@@ -282,8 +332,11 @@ export async function createTaskInDataStore(input: {
       priority: input.priority,
       due_date: input.dueDate,
       created_by_id: input.createdById,
+      client_id: input.clientId ?? null,
+      estimated_hours: input.estimatedHours ?? null,
+      worked_hours: input.workedHours ?? 0,
     })
-    .select("id,title,description,status,priority,due_date,created_at,created_by_id")
+    .select("id,title,description,status,priority,due_date,created_at,created_by_id,client_id,estimated_hours,worked_hours")
     .single();
 
   if (taskError || !insertedTask) {
@@ -314,14 +367,19 @@ export async function createTaskInDataStore(input: {
 
 export async function updateTaskInDataStore(
   taskId: number,
-  updates: Partial<Pick<Task, "title" | "description" | "status" | "priority" | "dueDate" | "tagIds">>,
+  updates: Partial<
+    Pick<
+      Task,
+      "title" | "description" | "status" | "priority" | "dueDate" | "tagIds" | "clientId" | "estimatedHours" | "workedHours"
+    >
+  >,
 ) {
   const supabase = getSupabaseBrowserClient();
   if (!supabase || !hasSupabaseEnv()) {
     return { source: "mock" as const };
   }
 
-  const payload: Record<string, string> = {};
+  const payload: Record<string, string | number | null> = {};
 
   if (updates.title !== undefined) {
     payload.title = updates.title;
@@ -337,6 +395,15 @@ export async function updateTaskInDataStore(
   }
   if (updates.dueDate) {
     payload.due_date = updates.dueDate;
+  }
+  if (updates.clientId !== undefined) {
+    payload.client_id = updates.clientId;
+  }
+  if (updates.estimatedHours !== undefined) {
+    payload.estimated_hours = updates.estimatedHours;
+  }
+  if (updates.workedHours !== undefined) {
+    payload.worked_hours = updates.workedHours;
   }
 
   if (Object.keys(payload).length > 0) {
@@ -526,6 +593,78 @@ export async function loadNotesData(user?: User | null): Promise<NotesData> {
     notes: (data as NoteRow[]).map(mapNote),
     source: "supabase",
   };
+}
+
+export async function loadClientNoteInDataStore(input: { clientId: string; profileId: string }) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return {
+      note: {
+        clientId: input.clientId,
+        content: "",
+        updatedAt: new Date().toISOString(),
+        createdById: input.profileId,
+      } satisfies ClientNote,
+      source: "mock" as const,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("client_notes")
+    .select("client_id,content,updated_at,created_by_id")
+    .eq("client_id", input.clientId)
+    .eq("created_by_id", input.profileId)
+    .maybeSingle();
+
+  if (error) {
+    throw error;
+  }
+
+  if (!data) {
+    return {
+      note: {
+        clientId: input.clientId,
+        content: "",
+        updatedAt: new Date().toISOString(),
+        createdById: input.profileId,
+      } satisfies ClientNote,
+      source: "supabase" as const,
+    };
+  }
+
+  return {
+    note: mapClientNote(data as ClientNoteRow),
+    source: "supabase" as const,
+  };
+}
+
+export async function upsertClientNoteInDataStore(input: {
+  clientId: string;
+  profileId: string;
+  content: string;
+}) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return { source: "mock" as const };
+  }
+
+  const { error } = await supabase
+    .from("client_notes")
+    .upsert(
+      {
+        client_id: input.clientId,
+        created_by_id: input.profileId,
+        content: input.content,
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: "client_id,created_by_id" },
+    );
+
+  if (error) {
+    throw error;
+  }
+
+  return { source: "supabase" as const };
 }
 
 export async function createNoteInDataStore(input: {
@@ -748,6 +887,127 @@ export async function deleteProjectInDataStore(projectId: string) {
   }
 
   const { error } = await supabase.from("projects").delete().eq("id", projectId);
+  if (error) {
+    throw error;
+  }
+
+  return { source: "supabase" as const };
+}
+
+export async function loadClientsData(user?: User | null): Promise<ClientsData> {
+  if (!hasSupabaseEnv()) {
+    return {
+      profile: mockProfile,
+      clients: mockClients,
+      source: "mock",
+    };
+  }
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    return {
+      profile: mockProfile,
+      clients: mockClients,
+      source: "mock",
+    };
+  }
+
+  if (!user) {
+    throw new Error("No authenticated user");
+  }
+
+  const ensuredProfile = await ensureProfileForUser(user, supabase);
+  const { data, error } = await supabase
+    .from("clients")
+    .select("id,name,created_at,updated_at")
+    .order("created_at", { ascending: false });
+
+  if (error || !data) {
+    return {
+      profile: ensuredProfile,
+      clients: mockClients,
+      source: "mock",
+    };
+  }
+
+  return {
+    profile: ensuredProfile,
+    clients: (data as ClientRow[]).map(mapClient),
+    source: "supabase",
+  };
+}
+
+export async function createClientInDataStore(input: { name: string }) {
+  const clientId = createEntityId("client");
+  const trimmedName = input.name.trim();
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return {
+      id: clientId,
+      name: trimmedName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } satisfies Client;
+  }
+
+  const { data, error } = await supabase
+    .from("clients")
+    .insert({ id: clientId, name: trimmedName })
+    .select("id,name,created_at,updated_at")
+    .single();
+
+  if (error || !data) {
+    throw error ?? new Error("Could not create client");
+  }
+
+  return mapClient(data as ClientRow);
+}
+
+export async function updateClientInDataStore(input: { clientId: string; name: string }) {
+  const supabase = getSupabaseBrowserClient();
+  const trimmedName = input.name.trim();
+  if (!supabase || !hasSupabaseEnv()) {
+    return {
+      id: input.clientId,
+      name: trimmedName,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+    } satisfies Client;
+  }
+
+  const { data, error } = await supabase
+    .from("clients")
+    .update({
+      name: trimmedName,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", input.clientId)
+    .select("id,name,created_at,updated_at")
+    .single();
+
+  if (error || !data) {
+    throw error ?? new Error("Could not update client");
+  }
+
+  return mapClient(data as ClientRow);
+}
+
+export async function deleteClientInDataStore(clientId: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return { source: "mock" as const };
+  }
+
+  const { error: clearTasksError } = await supabase
+    .from("tasks")
+    .update({ client_id: null })
+    .eq("client_id", clientId);
+
+  if (clearTasksError) {
+    throw clearTasksError;
+  }
+
+  const { error } = await supabase.from("clients").delete().eq("id", clientId);
   if (error) {
     throw error;
   }

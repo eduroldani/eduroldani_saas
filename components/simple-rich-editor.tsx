@@ -1,13 +1,16 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useState } from "react";
 
 function toHtmlContent(value: string) {
   if (!value.trim()) {
     return "";
   }
 
-  if (/<\/?[a-z][\s\S]*>/i.test(value)) {
+  const hasHtmlTags = /<\/?[a-z][\s\S]*>/i.test(value);
+  const hasHtmlEntities = /&(?:[a-z]+|#\d+|#x[a-f0-9]+);/i.test(value);
+
+  if (hasHtmlTags || hasHtmlEntities) {
     return value;
   }
 
@@ -30,6 +33,7 @@ export function SimpleRichEditor({
   placeholder?: string;
 }) {
   const editorRef = useRef<HTMLDivElement | null>(null);
+  const [toolbarPosition, setToolbarPosition] = useState<{ top: number; left: number } | null>(null);
 
   useEffect(() => {
     const editor = editorRef.current;
@@ -42,6 +46,51 @@ export function SimpleRichEditor({
       editor.innerHTML = nextHtml;
     }
   }, [value]);
+
+  useEffect(() => {
+    const updateToolbarFromSelection = () => {
+      const editor = editorRef.current;
+      const selection = window.getSelection();
+      if (!editor || !selection || selection.rangeCount === 0 || selection.isCollapsed) {
+        setToolbarPosition(null);
+        return;
+      }
+
+      const anchorNode = selection.anchorNode;
+      const focusNode = selection.focusNode;
+      if (!anchorNode || !focusNode) {
+        setToolbarPosition(null);
+        return;
+      }
+
+      if (!editor.contains(anchorNode) || !editor.contains(focusNode)) {
+        setToolbarPosition(null);
+        return;
+      }
+
+      const range = selection.getRangeAt(0);
+      const rect = range.getBoundingClientRect();
+      if (!rect.width && !rect.height) {
+        setToolbarPosition(null);
+        return;
+      }
+
+      setToolbarPosition({
+        top: Math.max(rect.top - 44, 8),
+        left: rect.left + rect.width / 2,
+      });
+    };
+
+    document.addEventListener("selectionchange", updateToolbarFromSelection);
+    window.addEventListener("scroll", updateToolbarFromSelection, true);
+    window.addEventListener("resize", updateToolbarFromSelection);
+
+    return () => {
+      document.removeEventListener("selectionchange", updateToolbarFromSelection);
+      window.removeEventListener("scroll", updateToolbarFromSelection, true);
+      window.removeEventListener("resize", updateToolbarFromSelection);
+    };
+  }, []);
 
   const emitChange = () => {
     const editor = editorRef.current;
@@ -62,39 +111,63 @@ export function SimpleRichEditor({
     emitChange();
   };
 
-  return (
-    <div className="space-y-2">
-      <div className="flex flex-wrap gap-2">
-        <button
-          className="rounded-md border border-black/10 px-2 py-1 text-xs text-black/70"
-          type="button"
-          onClick={() => runCommand("formatBlock", "P")}
-        >
-          P
-        </button>
-        <button
-          className="rounded-md border border-black/10 px-2 py-1 text-xs text-black/70"
-          type="button"
-          onClick={() => runCommand("formatBlock", "H2")}
-        >
-          H2
-        </button>
-        <button
-          className="rounded-md border border-black/10 px-2 py-1 text-xs text-black/70"
-          type="button"
-          onClick={() => runCommand("formatBlock", "H1")}
-        >
-          H1
-        </button>
-        <button
-          className="rounded-md border border-black/10 px-2 py-1 text-xs font-semibold text-black/70"
-          type="button"
-          onClick={() => runCommand("bold")}
-        >
-          B
-        </button>
-      </div>
+  const runFormatBlock = (tag: "p" | "h1" | "h2") => {
+    const editor = editorRef.current;
+    if (!editor) {
+      return;
+    }
 
+    editor.focus();
+
+    const variants = [`<${tag}>`, tag.toUpperCase(), tag];
+    let applied = false;
+    for (const value of variants) {
+      if (document.execCommand("formatBlock", false, value)) {
+        applied = true;
+        break;
+      }
+    }
+
+    if (!applied) {
+      document.execCommand("heading", false, tag);
+    }
+
+    emitChange();
+  };
+
+  return (
+    <div className="relative">
+      {toolbarPosition ? (
+        <div
+          className="fixed z-20 flex -translate-x-1/2 items-center gap-1 rounded-md border border-black/10 bg-white p-1 shadow-[0_10px_30px_rgba(0,0,0,0.12)]"
+          style={{ top: toolbarPosition.top, left: toolbarPosition.left }}
+        >
+          <button
+            className="rounded px-2 py-1 text-xs text-black/75 hover:bg-black/5"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => runFormatBlock("h2")}
+          >
+            T
+          </button>
+          <button
+            className="rounded px-2 py-1 text-xs font-semibold text-black/75 hover:bg-black/5"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => runCommand("bold")}
+          >
+            B
+          </button>
+          <button
+            className="rounded px-2 py-1 text-xs text-black/75 hover:bg-black/5"
+            type="button"
+            onMouseDown={(event) => event.preventDefault()}
+            onClick={() => runCommand("insertUnorderedList")}
+          >
+            •
+          </button>
+        </div>
+      ) : null}
       <div className="relative">
         {toHtmlContent(value).trim() ? null : (
           <p className="pointer-events-none absolute left-4 top-3 text-sm text-black/35">{placeholder}</p>

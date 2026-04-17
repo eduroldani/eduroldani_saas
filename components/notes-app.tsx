@@ -216,7 +216,13 @@ export function NotesApp() {
                 <div className="space-y-4">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-xs text-black/50">
-                      {saveState === "saving" ? "Saving..." : saveState === "saved" ? "Saved" : saveState === "error" ? "Error saving" : ""}
+                      {saveState === "saving"
+                        ? "Saving..."
+                        : saveState === "saved"
+                          ? "Saved"
+                          : saveState === "error"
+                            ? "Error saving"
+                            : "Auto-save on"}
                     </p>
                     <button
                       className="rounded-md border border-black/10 px-3 py-2 text-xs text-black/70"

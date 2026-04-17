@@ -1,4 +1,4 @@
-import type { Note, Profile, Project, Tag, Task } from "@/lib/task-types";
+import type { Client, Note, Profile, Project, Tag, Task } from "@/lib/task-types";
 
 export const mockProfile: Profile = {
   id: "usr_001",
@@ -27,6 +27,7 @@ export const mockTasks: Task[] = [
     createdAt: "2026-04-13",
     createdById: "usr_001",
     tagIds: ["tag_ops", "tag_product"],
+    clientId: null,
   },
   {
     id: 2,
@@ -38,6 +39,7 @@ export const mockTasks: Task[] = [
     createdAt: "2026-04-12",
     createdById: "usr_001",
     tagIds: ["tag_sales", "tag_follow_up"],
+    clientId: null,
   },
   {
     id: 3,
@@ -49,6 +51,30 @@ export const mockTasks: Task[] = [
     createdAt: "2026-04-11",
     createdById: "usr_001",
     tagIds: ["tag_admin"],
+    clientId: null,
+  },
+  {
+    id: 4,
+    title: "Launch campaign assets",
+    description: "Prepare and send first delivery batch for client kickoff.",
+    status: "In progress",
+    priority: "High",
+    dueDate: "2026-04-18",
+    createdAt: "2026-04-14",
+    createdById: "usr_001",
+    tagIds: ["tag_content"],
+    clientId: "client_1",
+    estimatedHours: 3,
+    workedHours: 1.5,
+  },
+];
+
+export const mockClients: Client[] = [
+  {
+    id: "client_1",
+    name: "Acme Health",
+    createdAt: "2026-04-10T10:00:00.000Z",
+    updatedAt: "2026-04-14T12:00:00.000Z",
   },
 ];
 

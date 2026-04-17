@@ -30,6 +30,7 @@ export function AppHeader({
   const navItems = [
     { href: "/", label: "Tasks" },
     { href: "/buy", label: "Buy" },
+    { href: "/clients", label: "Clients" },
     { href: "/notes", label: "Notes" },
     { href: "/projects", label: "Projects" },
     { href: "/tags", label: "Tags" },
@@ -39,6 +40,8 @@ export function AppHeader({
       ? "Buy"
       : pathname === "/tags"
         ? "Tags"
+        : pathname.startsWith("/clients")
+          ? "Clients"
         : pathname === "/notes"
           ? "Notes"
           : pathname === "/projects"
@@ -84,7 +87,10 @@ export function AppHeader({
 
           <nav className="hidden rounded-md border border-black/10 bg-[#fafafa] p-1 sm:flex">
             {navItems.map((item) => {
-              const isActive = pathname === item.href;
+              const isActive =
+                item.href === "/clients"
+                  ? pathname.startsWith("/clients")
+                  : pathname === item.href;
 
               return (
                 <Link
@@ -114,7 +120,10 @@ export function AppHeader({
       {isMenuOpen ? (
         <nav className="mt-3 flex flex-col gap-2 rounded-md border border-black/10 bg-[#fafafa] p-2 sm:hidden">
           {navItems.map((item) => {
-            const isActive = pathname === item.href;
+            const isActive =
+              item.href === "/clients"
+                ? pathname.startsWith("/clients")
+                : pathname === item.href;
 
             return (
               <Link

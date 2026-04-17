@@ -15,6 +15,13 @@ export type Tag = {
   name: string;
 };
 
+export type Client = {
+  id: string;
+  name: string;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Task = {
   id: number;
   title: string;
@@ -25,6 +32,9 @@ export type Task = {
   createdAt: string;
   createdById: string;
   tagIds: string[];
+  clientId?: string | null;
+  estimatedHours?: number | null;
+  workedHours?: number;
 };
 
 export type Note = {
@@ -32,6 +42,13 @@ export type Note = {
   title: string;
   content: string;
   createdAt: string;
+  updatedAt: string;
+  createdById: string;
+};
+
+export type ClientNote = {
+  clientId: string;
+  content: string;
   updatedAt: string;
   createdById: string;
 };

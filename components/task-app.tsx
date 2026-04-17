@@ -10,6 +10,7 @@ import {
   createTaskInDataStore,
   deleteTaskInDataStore,
   loadAppData,
+  loadClientsData,
   updateProfileInDataStore,
   updateTaskInDataStore,
 } from "@/lib/task-data";
@@ -21,7 +22,7 @@ import {
   signOutFromSupabase,
 } from "@/lib/supabase";
 import { useSupabaseAuth } from "@/hooks/use-supabase-auth";
-import type { Profile, Tag, Task, TaskPriority, TaskStatus, ViewMode } from "@/lib/task-types";
+import type { Client, Profile, Tag, Task, TaskPriority, TaskStatus, ViewMode } from "@/lib/task-types";
 
 const statuses: TaskStatus[] = ["To do", "In progress", "Done"];
 const priorities: TaskPriority[] = ["Low", "Medium", "High"];
@@ -105,6 +106,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
   const [newTaskTagPickerValue, setNewTaskTagPickerValue] = useState("");
   const [isCreateTagPickerOpen, setIsCreateTagPickerOpen] = useState(false);
   const [profile, setProfile] = useState<Profile>(mockProfile);
+  const [clients, setClients] = useState<Client[]>([]);
   const [tags, setTags] = useState<Tag[]>(mockTags);
   const [tasks, setTasks] = useState<Task[]>(mockTasks);
   const [selectedTask, setSelectedTask] = useState<Task | null>(null);
@@ -144,13 +146,17 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
         return;
       }
 
-      const appData = await loadAppData(authUser);
+      const [appData, clientsData] = await Promise.all([
+        loadAppData(authUser),
+        loadClientsData(authUser),
+      ]);
       if (!isMounted) {
         return;
       }
 
       setProfile(appData.profile);
       setProfileNameDraft(appData.profile.name);
+      setClients(clientsData.clients);
       setTags(appData.tags);
       setTasks(appData.tasks);
       if (section === "buy" && primaryBuyTagId) {
@@ -281,7 +287,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
 
   const updateTask = async (
     taskId: number,
-    updates: Partial<Pick<Task, "title" | "description" | "status" | "priority" | "dueDate" | "tagIds">>,
+    updates: Partial<Pick<Task, "title" | "description" | "status" | "priority" | "dueDate" | "tagIds" | "clientId">>,
   ) => {
     setTasks((currentTasks) =>
       currentTasks.map((task) => {
@@ -296,6 +302,11 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
         return nextTask;
       }),
     );
+
+    if (updates.clientId && selectedTask?.id === taskId) {
+      setSelectedTask(null);
+      setIsTagPickerOpen(false);
+    }
 
     await updateTaskInDataStore(taskId, updates);
     flashSavedBadge();
@@ -350,6 +361,10 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
 
   const scopedTasks = useMemo(() => {
     return tasks.filter((task) => {
+      if (task.clientId) {
+        return false;
+      }
+
       const isBuyTask = task.tagIds.some((tagId) => buyTagIds.has(tagId));
       return section === "buy" ? isBuyTask : !isBuyTask;
     });
@@ -719,6 +734,36 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
           </section>
 
           {section === "tasks" ? (
+            <section className="rounded-lg border border-black/10 bg-white p-3 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-4">
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  className={`rounded-md border px-3 py-2 text-xs transition ${
+                    tagFilter === "all" ? "border-black bg-black text-white" : "border-black/10 text-black/65"
+                  }`}
+                  type="button"
+                  onClick={() => setTagFilter("all")}
+                >
+                  All
+                </button>
+                {tags
+                  .filter((tag) => !buyTagIds.has(tag.id))
+                  .map((tag) => (
+                    <button
+                      key={tag.id}
+                      className={`rounded-md border px-3 py-2 text-xs transition ${
+                        tagFilter === tag.id ? "border-black bg-black text-white" : "border-black/10 text-black/65"
+                      }`}
+                      type="button"
+                      onClick={() => setTagFilter(tag.id)}
+                    >
+                      {tag.name}
+                    </button>
+                  ))}
+              </div>
+            </section>
+          ) : null}
+
+          {section === "tasks" ? (
             <section className="rounded-lg border border-black/10 bg-white p-4 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-5">
               <div className="grid gap-3 md:grid-cols-4">
                 <div className="rounded-md border border-black/10 bg-[#fafafa] px-4 py-3 text-xs text-black/55">
@@ -848,7 +893,7 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
                     <div className="divide-y divide-black/10">
                       {group.items.map((task) => (
                         <div key={task.id} className="px-4 py-4">
-                          <div className="hidden gap-3 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.9fr)_120px_120px_120px] lg:items-start">
+                          <div className="hidden gap-3 lg:grid lg:grid-cols-[minmax(0,1.2fr)_minmax(0,1.9fr)_120px_120px_120px_180px] lg:items-start">
                             <div className="min-w-0 space-y-2">
                               <button className="w-full min-w-0 text-left" type="button" onClick={() => setSelectedTask(task)}>
                                 <p className="truncate text-sm font-medium">{task.title}</p>
@@ -938,6 +983,23 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
                               {statuses.map((option) => (
                                 <option key={option} value={option}>
                                   {option}
+                                </option>
+                                ))}
+                            </select>
+                            <select
+                              className="rounded-md border border-black/10 bg-white px-3 py-2 text-xs text-black/75 outline-none transition focus:border-black/35"
+                              value={task.clientId ?? ""}
+                              onChange={(event) =>
+                                void updateTask(task.id, {
+                                  clientId: event.target.value || null,
+                                })
+                              }
+                              aria-label={`Client for ${task.title}`}
+                            >
+                              <option value="">No client</option>
+                              {clients.map((client) => (
+                                <option key={client.id} value={client.id}>
+                                  {client.name}
                                 </option>
                               ))}
                             </select>
@@ -1052,6 +1114,25 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
                 ))}
               </select>
             </div>
+
+            {section === "tasks" ? (
+              <div className="mt-3">
+                <select
+                  className="w-full rounded-md border border-black/10 bg-white px-4 py-3 text-sm text-black outline-none transition focus:border-black/40"
+                  value={selectedTask.clientId ?? ""}
+                  onChange={(event) =>
+                    void updateTask(selectedTask.id, { clientId: event.target.value || null })
+                  }
+                >
+                  <option value="">No client</option>
+                  {clients.map((client) => (
+                    <option key={client.id} value={client.id}>
+                      {client.name}
+                    </option>
+                  ))}
+                </select>
+              </div>
+            ) : null}
 
             <div className="mt-3">
               <input
