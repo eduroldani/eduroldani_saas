@@ -1,4 +1,4 @@
-import type { Client, Note, Profile, Project, Tag, Task } from "@/lib/task-types";
+import type { Client, DailyTaskLog, DailyTaskTemplate, Note, Profile, Project, Tag, Task } from "@/lib/task-types";
 
 export const mockProfile: Profile = {
   id: "usr_001",
@@ -99,5 +99,38 @@ export const mockProjects: Project[] = [
     createdAt: "2026-04-10T10:30:00.000Z",
     updatedAt: "2026-04-14T08:30:00.000Z",
     createdById: "usr_001",
+  },
+];
+
+export const mockDailyTaskTemplates: DailyTaskTemplate[] = [
+  {
+    id: "daily_1",
+    title: "Morning supplements",
+    isActive: true,
+    archivedAt: null,
+    createdAt: "2026-04-10T08:00:00.000Z",
+    updatedAt: "2026-04-10T08:00:00.000Z",
+    createdById: "usr_001",
+  },
+  {
+    id: "daily_2",
+    title: "Night supplements",
+    isActive: true,
+    archivedAt: null,
+    createdAt: "2026-04-10T08:01:00.000Z",
+    updatedAt: "2026-04-10T08:01:00.000Z",
+    createdById: "usr_001",
+  },
+];
+
+export const mockDailyTaskLogs: DailyTaskLog[] = [
+  {
+    id: "daily_log_1",
+    templateId: "daily_1",
+    dateLocal: "2026-04-19",
+    completed: true,
+    completedAt: "2026-04-19T07:45:00.000Z",
+    createdAt: "2026-04-19T07:45:00.000Z",
+    updatedAt: "2026-04-19T07:45:00.000Z",
   },
 ];

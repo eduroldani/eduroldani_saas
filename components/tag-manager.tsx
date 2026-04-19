@@ -39,14 +39,19 @@ export function TagManager() {
         return;
       }
 
-      const appData = await loadAppData(authUser);
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const appData = await loadAppData(authUser);
+        if (!isMounted) {
+          return;
+        }
 
-      setProfile(appData.profile);
-      setTags(appData.tags);
-      setIsLoading(false);
+        setProfile(appData.profile);
+        setTags(appData.tags);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
 
     if (authState === "authenticated" || authState === "mock") {

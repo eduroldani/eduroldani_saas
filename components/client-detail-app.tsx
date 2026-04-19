@@ -99,29 +99,34 @@ export function ClientDetailApp({ clientId }: { clientId: string }) {
         return;
       }
 
-      const [appData, clientsData] = await Promise.all([
-        loadAppData(authUser),
-        loadClientsData(authUser),
-      ]);
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const [appData, clientsData] = await Promise.all([
+          loadAppData(authUser),
+          loadClientsData(authUser),
+        ]);
+        if (!isMounted) {
+          return;
+        }
 
-      const clientNoteData = await loadClientNoteInDataStore({
-        clientId,
-        profileId: appData.profile.id,
-      });
-      if (!isMounted) {
-        return;
-      }
+        const clientNoteData = await loadClientNoteInDataStore({
+          clientId,
+          profileId: appData.profile.id,
+        });
+        if (!isMounted) {
+          return;
+        }
 
-      setProfile(appData.profile);
-      setTags(appData.tags);
-      setTasks(appData.tasks.filter((task) => task.clientId === clientId));
-      setClientName(clientsData.clients.find((entry) => entry.id === clientId)?.name ?? "Client not found");
-      setClientNoteContent(clientNoteData.note.content);
-      setClientNoteSaveState("idle");
-      setIsLoading(false);
+        setProfile(appData.profile);
+        setTags(appData.tags);
+        setTasks(appData.tasks.filter((task) => task.clientId === clientId));
+        setClientName(clientsData.clients.find((entry) => entry.id === clientId)?.name ?? "Client not found");
+        setClientNoteContent(clientNoteData.note.content);
+        setClientNoteSaveState("idle");
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
 
     if (authState === "authenticated" || authState === "mock") {
@@ -146,6 +151,12 @@ export function ClientDetailApp({ clientId }: { clientId: string }) {
   const sortedTasks = useMemo(() => {
     const priorityOrder = new Map(["High", "Medium", "Low"].map((value, index) => [value, index]));
     return [...tasks].sort((left, right) => {
+      const leftCompleted = left.status === "Done";
+      const rightCompleted = right.status === "Done";
+      if (leftCompleted !== rightCompleted) {
+        return Number(leftCompleted) - Number(rightCompleted);
+      }
+
       const leftPriority = priorityOrder.get(left.priority) ?? 99;
       const rightPriority = priorityOrder.get(right.priority) ?? 99;
       if (leftPriority !== rightPriority) {

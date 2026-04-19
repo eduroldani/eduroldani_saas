@@ -37,6 +37,26 @@ export type Task = {
   workedHours?: number;
 };
 
+export type DailyTaskTemplate = {
+  id: string;
+  title: string;
+  isActive: boolean;
+  archivedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+  createdById: string;
+};
+
+export type DailyTaskLog = {
+  id: string;
+  templateId: string;
+  dateLocal: string;
+  completed: boolean;
+  completedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 export type Note = {
   id: string;
   title: string;

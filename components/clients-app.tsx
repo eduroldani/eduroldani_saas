@@ -75,18 +75,23 @@ export function ClientsApp() {
         return;
       }
 
-      const [clientsData, appData] = await Promise.all([
-        loadClientsData(authUser),
-        loadAppData(authUser),
-      ]);
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const [clientsData, appData] = await Promise.all([
+          loadClientsData(authUser),
+          loadAppData(authUser),
+        ]);
+        if (!isMounted) {
+          return;
+        }
 
-      setProfile(clientsData.profile);
-      setClients(clientsData.clients);
-      setTasks(appData.tasks.filter((task) => Boolean(task.clientId)));
-      setIsLoading(false);
+        setProfile(clientsData.profile);
+        setClients(clientsData.clients);
+        setTasks(appData.tasks.filter((task) => Boolean(task.clientId)));
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
 
     if (authState === "authenticated" || authState === "mock") {
@@ -165,6 +170,12 @@ export function ClientsApp() {
     );
 
     return [...tasks].sort((left, right) => {
+      const leftCompleted = left.status === "Done";
+      const rightCompleted = right.status === "Done";
+      if (leftCompleted !== rightCompleted) {
+        return Number(leftCompleted) - Number(rightCompleted);
+      }
+
       const leftPriority = priorityOrder.get(left.priority) ?? 99;
       const rightPriority = priorityOrder.get(right.priority) ?? 99;
       if (leftPriority !== rightPriority) {

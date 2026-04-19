@@ -54,15 +54,20 @@ export function NotesApp() {
         return;
       }
 
-      const data = await loadNotesData(authUser);
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const data = await loadNotesData(authUser);
+        if (!isMounted) {
+          return;
+        }
 
-      setProfile(data.profile);
-      setNotes(data.notes);
-      setSelectedNoteId(data.notes[0]?.id ?? null);
-      setIsLoading(false);
+        setProfile(data.profile);
+        setNotes(data.notes);
+        setSelectedNoteId(data.notes[0]?.id ?? null);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
 
     if (authState === "authenticated" || authState === "mock") {

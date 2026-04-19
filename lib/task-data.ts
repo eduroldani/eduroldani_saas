@@ -1,7 +1,29 @@
 import type { User } from "@supabase/supabase-js";
-import { mockClients, mockNotes, mockProfile, mockProjects, mockTags, mockTasks } from "@/lib/mock-data";
+import {
+  mockClients,
+  mockDailyTaskLogs,
+  mockDailyTaskTemplates,
+  mockNotes,
+  mockProfile,
+  mockProjects,
+  mockTags,
+  mockTasks,
+} from "@/lib/mock-data";
 import { getSupabaseBrowserClient, hasSupabaseEnv } from "@/lib/supabase";
-import type { Client, ClientNote, Note, Profile, Project, ProjectStatus, Tag, Task, TaskPriority, TaskStatus } from "@/lib/task-types";
+import type {
+  Client,
+  ClientNote,
+  DailyTaskLog,
+  DailyTaskTemplate,
+  Note,
+  Profile,
+  Project,
+  ProjectStatus,
+  Tag,
+  Task,
+  TaskPriority,
+  TaskStatus,
+} from "@/lib/task-types";
 
 type TaskRow = {
   id: number;
@@ -64,6 +86,26 @@ type ProjectRow = {
   created_by_id: string;
 };
 
+type DailyTaskTemplateRow = {
+  id: string;
+  title: string;
+  is_active: boolean;
+  archived_at: string | null;
+  created_at: string;
+  updated_at: string;
+  created_by_id: string;
+};
+
+type DailyTaskLogRow = {
+  id: string;
+  template_id: string;
+  date_local: string;
+  completed: boolean;
+  completed_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type AppData = {
   profile: Profile;
   tags: Tag[];
@@ -86,6 +128,13 @@ export type ProjectsData = {
 export type ClientsData = {
   profile: Profile;
   clients: Client[];
+  source: "supabase" | "mock";
+};
+
+export type DailiesData = {
+  profile: Profile;
+  templates: DailyTaskTemplate[];
+  logs: DailyTaskLog[];
   source: "supabase" | "mock";
 };
 
@@ -112,6 +161,17 @@ function buildProfileName(user: User) {
   }
 
   return "User";
+}
+
+function fallbackProfileFromUser(user: User): Profile {
+  const name = buildProfileName(user);
+  const email = user.email ?? "";
+  return {
+    id: user.id,
+    name,
+    email,
+    avatarLabel: buildAvatarLabel(name, email),
+  };
 }
 
 function mapProfile(row: ProfileRow): Profile {
@@ -182,27 +242,57 @@ function mapProject(row: ProjectRow): Project {
   };
 }
 
-async function ensureProfileForUser(user: User, supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>) {
-  const fallbackName = buildProfileName(user);
-  const fallbackEmail = user.email ?? "";
-  const fallbackAvatarLabel = buildAvatarLabel(fallbackName, user.email);
+function mapDailyTaskTemplate(row: DailyTaskTemplateRow): DailyTaskTemplate {
+  return {
+    id: row.id,
+    title: row.title,
+    isActive: row.is_active,
+    archivedAt: row.archived_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    createdById: row.created_by_id,
+  };
+}
 
-  const { data: existingProfile } = await supabase
+function mapDailyTaskLog(row: DailyTaskLogRow): DailyTaskLog {
+  return {
+    id: row.id,
+    templateId: row.template_id,
+    dateLocal: row.date_local,
+    completed: row.completed,
+    completedAt: row.completed_at,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+  };
+}
+
+async function ensureProfileForUser(user: User, supabase: NonNullable<ReturnType<typeof getSupabaseBrowserClient>>) {
+  const fallbackProfile = fallbackProfileFromUser(user);
+
+  const { data: existingProfile, error: existingProfileError } = await supabase
     .from("profiles")
     .select("id,name,email,avatar_label")
     .eq("id", user.id)
     .maybeSingle();
 
+  if (existingProfileError?.code === "42501") {
+    return fallbackProfile;
+  }
+
   if (existingProfile) {
     return mapProfile(existingProfile as ProfileRow);
   }
 
-  if (fallbackEmail) {
-    const { data: existingProfileByEmail } = await supabase
+  if (fallbackProfile.email) {
+    const { data: existingProfileByEmail, error: existingByEmailError } = await supabase
       .from("profiles")
       .select("id,name,email,avatar_label")
-      .eq("email", fallbackEmail)
+      .eq("email", fallbackProfile.email)
       .maybeSingle();
+
+    if (existingByEmailError?.code === "42501") {
+      return fallbackProfile;
+    }
 
     if (existingProfileByEmail) {
       return mapProfile(existingProfileByEmail as ProfileRow);
@@ -213,18 +303,22 @@ async function ensureProfileForUser(user: User, supabase: NonNullable<ReturnType
     .from("profiles")
     .insert({
       id: user.id,
-      name: fallbackName,
-      email: fallbackEmail,
-      avatar_label: fallbackAvatarLabel,
+      name: fallbackProfile.name,
+      email: fallbackProfile.email,
+      avatar_label: fallbackProfile.avatarLabel,
     })
     .select("id,name,email,avatar_label")
     .single();
 
-  if (error?.code === "23505" && fallbackEmail) {
+  if (error?.code === "42501") {
+    return fallbackProfile;
+  }
+
+  if (error?.code === "23505" && fallbackProfile.email) {
     const { data: conflictProfile } = await supabase
       .from("profiles")
       .select("id,name,email,avatar_label")
-      .eq("email", fallbackEmail)
+      .eq("email", fallbackProfile.email)
       .maybeSingle();
 
     if (conflictProfile) {
@@ -233,7 +327,7 @@ async function ensureProfileForUser(user: User, supabase: NonNullable<ReturnType
   }
 
   if (error || !createdProfile) {
-    throw error ?? new Error("Could not create profile");
+    return fallbackProfile;
   }
 
   return mapProfile(createdProfile as ProfileRow);
@@ -286,6 +380,75 @@ export async function loadAppData(user?: User | null): Promise<AppData> {
     profile: ensuredProfile,
     tags: (tagsResult.data as TagRow[]).map((tag) => ({ id: tag.id, name: tag.name })),
     tasks: (tasksResult.data as TaskRow[]).map(mapTask),
+    source: "supabase",
+  };
+}
+
+export async function loadDailiesData(input: {
+  user?: User | null;
+  dateLocal: string;
+  fromDateLocal?: string;
+  toDateLocal?: string;
+}): Promise<DailiesData> {
+  const fromDate = input.fromDateLocal ?? input.dateLocal;
+  const toDate = input.toDateLocal ?? input.dateLocal;
+
+  if (!hasSupabaseEnv()) {
+    return {
+      profile: mockProfile,
+      templates: mockDailyTaskTemplates,
+      logs: mockDailyTaskLogs.filter(
+        (log) => log.dateLocal >= fromDate && log.dateLocal <= toDate,
+      ),
+      source: "mock",
+    };
+  }
+
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase) {
+    return {
+      profile: mockProfile,
+      templates: mockDailyTaskTemplates,
+      logs: mockDailyTaskLogs.filter(
+        (log) => log.dateLocal >= fromDate && log.dateLocal <= toDate,
+      ),
+      source: "mock",
+    };
+  }
+
+  if (!input.user) {
+    throw new Error("No authenticated user");
+  }
+
+  const ensuredProfile = await ensureProfileForUser(input.user, supabase);
+
+  const [templatesResult, logsResult] = await Promise.all([
+    supabase
+      .from("daily_task_templates")
+      .select("id,title,is_active,archived_at,created_at,updated_at,created_by_id")
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("daily_task_logs")
+      .select("id,template_id,date_local,completed,completed_at,created_at,updated_at")
+      .gte("date_local", fromDate)
+      .lte("date_local", toDate),
+  ]);
+
+  if (templatesResult.error || logsResult.error) {
+    return {
+      profile: ensuredProfile,
+      templates: mockDailyTaskTemplates,
+      logs: mockDailyTaskLogs.filter(
+        (log) => log.dateLocal >= fromDate && log.dateLocal <= toDate,
+      ),
+      source: "mock",
+    };
+  }
+
+  return {
+    profile: ensuredProfile,
+    templates: (templatesResult.data as DailyTaskTemplateRow[]).map(mapDailyTaskTemplate),
+    logs: (logsResult.data as DailyTaskLogRow[]).map(mapDailyTaskLog),
     source: "supabase",
   };
 }
@@ -459,6 +622,151 @@ function createTagId(name: string) {
 
 function createEntityId(prefix: string) {
   return `${prefix}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+}
+
+function createDailyLogId(templateId: string, dateLocal: string) {
+  return `daily_log_${templateId}_${dateLocal}`.replace(/[^a-zA-Z0-9_-]/g, "_");
+}
+
+export async function createDailyTaskTemplateInDataStore(input: {
+  title: string;
+  createdById: string;
+}) {
+  const title = input.title.trim();
+  const templateId = createEntityId("daily");
+  const now = new Date().toISOString();
+  const supabase = getSupabaseBrowserClient();
+
+  if (!supabase || !hasSupabaseEnv()) {
+    return {
+      template: {
+        id: templateId,
+        title,
+        isActive: true,
+        archivedAt: null,
+        createdAt: now,
+        updatedAt: now,
+        createdById: input.createdById,
+      } satisfies DailyTaskTemplate,
+      source: "mock" as const,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("daily_task_templates")
+    .insert({
+      id: templateId,
+      title,
+      is_active: true,
+      created_by_id: input.createdById,
+    })
+    .select("id,title,is_active,archived_at,created_at,updated_at,created_by_id")
+    .single();
+
+  if (error || !data) {
+    throw error ?? new Error("Could not create daily task");
+  }
+
+  return {
+    template: mapDailyTaskTemplate(data as DailyTaskTemplateRow),
+    source: "supabase" as const,
+  };
+}
+
+export async function updateDailyTaskTemplateInDataStore(templateId: string, updates: { title: string }) {
+  const title = updates.title.trim();
+  const supabase = getSupabaseBrowserClient();
+
+  if (!supabase || !hasSupabaseEnv()) {
+    return { source: "mock" as const };
+  }
+
+  const { error } = await supabase
+    .from("daily_task_templates")
+    .update({
+      title,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", templateId);
+
+  if (error) {
+    throw error;
+  }
+
+  return { source: "supabase" as const };
+}
+
+export async function archiveDailyTaskTemplateInDataStore(templateId: string) {
+  const supabase = getSupabaseBrowserClient();
+  if (!supabase || !hasSupabaseEnv()) {
+    return { source: "mock" as const };
+  }
+
+  const now = new Date().toISOString();
+  const { error } = await supabase
+    .from("daily_task_templates")
+    .update({
+      is_active: false,
+      archived_at: now,
+      updated_at: now,
+    })
+    .eq("id", templateId);
+
+  if (error) {
+    throw error;
+  }
+
+  return { source: "supabase" as const };
+}
+
+export async function upsertDailyTaskLogInDataStore(input: {
+  templateId: string;
+  dateLocal: string;
+  completed: boolean;
+}) {
+  const now = new Date().toISOString();
+  const logId = createDailyLogId(input.templateId, input.dateLocal);
+  const supabase = getSupabaseBrowserClient();
+
+  if (!supabase || !hasSupabaseEnv()) {
+    return {
+      log: {
+        id: logId,
+        templateId: input.templateId,
+        dateLocal: input.dateLocal,
+        completed: input.completed,
+        completedAt: input.completed ? now : null,
+        createdAt: now,
+        updatedAt: now,
+      } satisfies DailyTaskLog,
+      source: "mock" as const,
+    };
+  }
+
+  const { data, error } = await supabase
+    .from("daily_task_logs")
+    .upsert(
+      {
+        id: logId,
+        template_id: input.templateId,
+        date_local: input.dateLocal,
+        completed: input.completed,
+        completed_at: input.completed ? now : null,
+        updated_at: now,
+      },
+      { onConflict: "template_id,date_local" },
+    )
+    .select("id,template_id,date_local,completed,completed_at,created_at,updated_at")
+    .single();
+
+  if (error || !data) {
+    throw error ?? new Error("Could not update daily log");
+  }
+
+  return {
+    log: mapDailyTaskLog(data as DailyTaskLogRow),
+    source: "supabase" as const,
+  };
 }
 
 export async function createTagInDataStore(name: string) {

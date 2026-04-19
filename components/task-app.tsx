@@ -146,25 +146,35 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
         return;
       }
 
-      const [appData, clientsData] = await Promise.all([
-        loadAppData(authUser),
-        loadClientsData(authUser),
-      ]);
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const [appData, clientsData] = await Promise.all([
+          loadAppData(authUser),
+          loadClientsData(authUser),
+        ]);
+        if (!isMounted) {
+          return;
+        }
 
-      setProfile(appData.profile);
-      setProfileNameDraft(appData.profile.name);
-      setClients(clientsData.clients);
-      setTags(appData.tags);
-      setTasks(appData.tasks);
-      if (section === "buy" && primaryBuyTagId) {
-        setSelectedTagIds([primaryBuyTagId]);
-      } else {
+        setProfile(appData.profile);
+        setProfileNameDraft(appData.profile.name);
+        setClients(clientsData.clients);
+        setTags(appData.tags);
+        setTasks(appData.tasks);
+        if (section === "buy" && primaryBuyTagId) {
+          setSelectedTagIds([primaryBuyTagId]);
+        } else {
+          setSelectedTagIds([]);
+        }
+      } catch {
+        if (!isMounted) {
+          return;
+        }
         setSelectedTagIds([]);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
       }
-      setIsLoading(false);
     }
 
     if (authState === "authenticated" || authState === "mock") {
@@ -388,6 +398,12 @@ export function TaskApp({ section = "tasks" }: { section?: DashboardSection }) {
     );
 
     return [...filteredTasks].sort((left, right) => {
+      const leftCompleted = left.status === "Done";
+      const rightCompleted = right.status === "Done";
+      if (leftCompleted !== rightCompleted) {
+        return Number(leftCompleted) - Number(rightCompleted);
+      }
+
       const leftPriority = priorityOrder.get(left.priority) ?? 99;
       const rightPriority = priorityOrder.get(right.priority) ?? 99;
       if (leftPriority !== rightPriority) {

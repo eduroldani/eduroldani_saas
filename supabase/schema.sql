@@ -6,6 +6,39 @@ create table if not exists profiles (
   created_at timestamptz not null default now()
 );
 
+create or replace function public.handle_new_user()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  insert into public.profiles (id, email, name, avatar_label)
+  values (
+    new.id::text,
+    coalesce(new.email, ''),
+    coalesce(
+      nullif(new.raw_user_meta_data->>'name', ''),
+      nullif(new.raw_user_meta_data->>'full_name', ''),
+      split_part(coalesce(new.email, 'user'), '@', 1)
+    ),
+    upper(left(coalesce(new.email, 'u'), 1))
+  )
+  on conflict (id) do update
+  set
+    email = excluded.email,
+    name = excluded.name,
+    avatar_label = excluded.avatar_label;
+
+  return new;
+end;
+$$;
+
+drop trigger if exists on_auth_user_created on auth.users;
+create trigger on_auth_user_created
+after insert on auth.users
+for each row execute function public.handle_new_user();
+
 create table if not exists tags (
   id text primary key,
   name text not null unique,
@@ -69,4 +102,82 @@ create table if not exists projects (
   created_at timestamptz not null default now(),
   updated_at timestamptz not null default now(),
   created_by_id text not null references profiles(id) on delete cascade
+);
+
+create table if not exists daily_task_templates (
+  id text primary key,
+  title text not null,
+  is_active boolean not null default true,
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by_id text not null references profiles(id) on delete cascade
+);
+
+create table if not exists daily_task_logs (
+  id text primary key,
+  template_id text not null references daily_task_templates(id) on delete cascade,
+  date_local date not null,
+  completed boolean not null default false,
+  completed_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (template_id, date_local)
+);
+
+create table if not exists sports_items (
+  id text primary key,
+  name text not null,
+  metric_type text not null check (metric_type in ('kg', 'km')),
+  is_active boolean not null default true,
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by_id text not null references profiles(id) on delete cascade
+);
+
+create table if not exists sports_logs (
+  id text primary key,
+  item_id text not null references sports_items(id) on delete cascade,
+  value_numeric numeric(10,2) not null check (value_numeric > 0),
+  date_local date not null,
+  created_at timestamptz not null default now(),
+  created_by_id text not null references profiles(id) on delete cascade
+);
+
+create table if not exists sports_routines (
+  id text primary key,
+  name text not null,
+  is_active boolean not null default true,
+  archived_at timestamptz,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  created_by_id text not null references profiles(id) on delete cascade
+);
+
+create table if not exists sports_routine_steps (
+  id text primary key,
+  routine_id text not null references sports_routines(id) on delete cascade,
+  name text not null,
+  order_index integer not null check (order_index >= 0),
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now(),
+  unique (routine_id, order_index)
+);
+
+create table if not exists sports_routine_completions (
+  id text primary key,
+  routine_id text not null references sports_routines(id) on delete cascade,
+  date_local date not null,
+  completed_at timestamptz not null default now(),
+  created_by_id text not null references profiles(id) on delete cascade
+);
+
+create table if not exists sports_routine_step_checks (
+  id text primary key,
+  completion_id text not null references sports_routine_completions(id) on delete cascade,
+  step_id text not null references sports_routine_steps(id) on delete cascade,
+  done boolean not null default false,
+  checked_at timestamptz,
+  unique (completion_id, step_id)
 );

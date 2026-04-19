@@ -29,6 +29,8 @@ export function AppHeader({
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const navItems = [
     { href: "/", label: "Tasks" },
+    { href: "/dailies", label: "Dailies" },
+    { href: "/sports", label: "Sports" },
     { href: "/buy", label: "Buy" },
     { href: "/clients", label: "Clients" },
     { href: "/notes", label: "Notes" },
@@ -36,7 +38,11 @@ export function AppHeader({
     { href: "/tags", label: "Tags" },
   ];
   const pageTitle =
-    pathname === "/buy"
+    pathname === "/dailies"
+      ? "Dailies"
+      : pathname === "/sports"
+        ? "Sports"
+      : pathname === "/buy"
       ? "Buy"
       : pathname === "/tags"
         ? "Tags"

@@ -55,15 +55,20 @@ export function ProjectsApp() {
         return;
       }
 
-      const data = await loadProjectsData(authUser);
-      if (!isMounted) {
-        return;
-      }
+      try {
+        const data = await loadProjectsData(authUser);
+        if (!isMounted) {
+          return;
+        }
 
-      setProfile(data.profile);
-      setProjects(data.projects);
-      setSelectedProjectId(data.projects[0]?.id ?? null);
-      setIsLoading(false);
+        setProfile(data.profile);
+        setProjects(data.projects);
+        setSelectedProjectId(data.projects[0]?.id ?? null);
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
     }
 
     if (authState === "authenticated" || authState === "mock") {
@@ -92,6 +97,17 @@ export function ProjectsApp() {
     () => projects.find((project) => project.id === selectedProjectId) ?? null,
     [projects, selectedProjectId],
   );
+  const orderedProjects = useMemo(() => {
+    return [...projects].sort((left, right) => {
+      const leftCompleted = left.status === "Done";
+      const rightCompleted = right.status === "Done";
+      if (leftCompleted !== rightCompleted) {
+        return Number(leftCompleted) - Number(rightCompleted);
+      }
+
+      return new Date(right.updatedAt).getTime() - new Date(left.updatedAt).getTime();
+    });
+  }, [projects]);
 
   const flashSavedBadge = () => {
     if (savedBadgeTimeoutRef.current) {
@@ -200,7 +216,7 @@ export function ProjectsApp() {
 
           <section className="grid gap-4 lg:grid-cols-[280px_minmax(0,1fr)]">
             <div className="space-y-2 rounded-lg border border-black/10 bg-white p-3 shadow-[0_18px_60px_rgba(0,0,0,0.08)] sm:p-4">
-              {projects.map((project) => (
+              {orderedProjects.map((project) => (
                 <button
                   key={project.id}
                   className={`w-full rounded-md border px-3 py-3 text-left transition ${
