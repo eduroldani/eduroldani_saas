@@ -181,3 +181,15 @@ create table if not exists sports_routine_step_checks (
   checked_at timestamptz,
   unique (completion_id, step_id)
 );
+
+alter table if exists sports_items
+  add column if not exists sport text,
+  add column if not exists metric_kind text check (metric_kind in ('count', 'distance_time', 'weight_reps', 'custom')),
+  add column if not exists custom_unit text;
+
+alter table if exists sports_logs
+  add column if not exists distance_km numeric(10,2),
+  add column if not exists duration_min numeric(10,2),
+  add column if not exists weight_kg numeric(10,2),
+  add column if not exists reps integer,
+  add column if not exists sets integer;

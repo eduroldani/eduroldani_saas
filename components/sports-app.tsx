@@ -7,6 +7,26 @@ import { LoginScreen } from "@/components/login-screen";
 import { SavedBadge } from "@/components/saved-badge";
 import { mockProfile } from "@/lib/mock-data";
 import {
+  addSportsRoutineStepInDataStore,
+  archiveSportsItemInDataStore,
+  archiveSportsRoutineInDataStore,
+  createSportsItemInDataStore,
+  createSportsLogInDataStore,
+  createSportsRoutineCompletionInDataStore,
+  createSportsRoutineInDataStore,
+  loadSportsData,
+  removeSportsRoutineStepInDataStore,
+  reorderSportsRoutineStepsInDataStore,
+  updateSportsItemInDataStore,
+  updateSportsRoutineInDataStore,
+  type MetricKind,
+  type SportsItem,
+  type SportsLog,
+  type SportsRoutine,
+  type SportsRoutineCompletion,
+  type SportsRoutineStep,
+} from "@/lib/sports-data";
+import {
   hasSupabaseEnv,
   sendPasswordResetEmail,
   signInWithEmailPassword,
@@ -16,52 +36,6 @@ import { useSupabaseAuth } from "@/hooks/use-supabase-auth";
 import type { Profile } from "@/lib/task-types";
 
 type SportsTab = "tracking" | "routines" | "history";
-type MetricKind = "count" | "distance_time" | "weight_reps" | "custom";
-
-type SportsItem = {
-  id: string;
-  sport: string;
-  name: string;
-  metricKind: MetricKind;
-  customUnit: string | null;
-  isActive: boolean;
-  archivedAt: string | null;
-};
-
-type SportsLog = {
-  id: string;
-  itemId: string;
-  dateLocal: string;
-  createdAt: string;
-  numericValue: number | null;
-  distanceKm: number | null;
-  durationMin: number | null;
-  weightKg: number | null;
-  reps: number | null;
-  sets: number | null;
-};
-
-type SportsRoutine = {
-  id: string;
-  name: string;
-  isActive: boolean;
-  archivedAt: string | null;
-  createdAt: string;
-};
-
-type SportsRoutineStep = {
-  id: string;
-  routineId: string;
-  name: string;
-  orderIndex: number;
-};
-
-type SportsRoutineCompletion = {
-  id: string;
-  routineId: string;
-  dateLocal: string;
-  completedAt: string;
-};
 
 type RoutineDraft = {
   id: string;
@@ -137,11 +111,13 @@ function describeLog(item: SportsItem, log: SportsLog) {
 }
 
 export function SportsApp() {
-  const { authState } = useSupabaseAuth();
-  const [profile] = useState<Profile>(mockProfile);
+  const { authState, authUser } = useSupabaseAuth();
+  const [profile, setProfile] = useState<Profile>(mockProfile);
   const [activeTab, setActiveTab] = useState<SportsTab>("tracking");
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [isSavedVisible, setIsSavedVisible] = useState(false);
+  const [storageSource, setStorageSource] = useState<"mock" | "supabase">("mock");
+  const [isDataLoading, setIsDataLoading] = useState(true);
   const [todayDate, setTodayDate] = useState("");
   const [items, setItems] = useState<SportsItem[]>([]);
   const [logs, setLogs] = useState<SportsLog[]>([]);
@@ -177,12 +153,92 @@ export function SportsApp() {
     setLogDraftDate(today);
   }, []);
 
+  useEffect(() => {
+    if (authState === "loading") {
+      return;
+    }
+
+    if (hasSupabaseEnv() && authState === "unauthenticated") {
+      setIsDataLoading(false);
+      return;
+    }
+
+    let isMounted = true;
+
+    const load = async () => {
+      setIsDataLoading(true);
+      try {
+        const data = await loadSportsData({ user: authUser });
+        if (!isMounted) {
+          return;
+        }
+        setProfile(data.profile);
+        setItems(data.items);
+        setLogs(data.logs);
+        setRoutines(data.routines);
+        setSteps(data.steps);
+        setCompletions(data.completions);
+        setStorageSource(data.source);
+      } catch (error) {
+        if (!isMounted) {
+          return;
+        }
+        console.error(error);
+        alert(error instanceof Error ? error.message : "Could not load sports data.");
+      } finally {
+        if (isMounted) {
+          setIsDataLoading(false);
+        }
+      }
+    };
+
+    void load();
+
+    return () => {
+      isMounted = false;
+    };
+  }, [authState, authUser]);
+
   const flashSaved = () => {
     if (savedBadgeTimeoutRef.current) {
       clearTimeout(savedBadgeTimeoutRef.current);
     }
     setIsSavedVisible(true);
     savedBadgeTimeoutRef.current = setTimeout(() => setIsSavedVisible(false), 1400);
+  };
+
+  const showStorageError = (error: unknown) => {
+    console.error(error);
+    if (error instanceof Error && error.message) {
+      alert(error.message);
+      return;
+    }
+
+    if (
+      typeof error === "object" &&
+      error !== null &&
+      "message" in error &&
+      typeof (error as { message?: unknown }).message === "string"
+    ) {
+      alert((error as { message: string }).message);
+      return;
+    }
+
+    alert("Could not save sports data.");
+  };
+
+  const refreshSportsState = async () => {
+    if (storageSource !== "supabase") {
+      return;
+    }
+
+    const data = await loadSportsData({ user: authUser });
+    setProfile(data.profile);
+    setItems(data.items);
+    setLogs(data.logs);
+    setRoutines(data.routines);
+    setSteps(data.steps);
+    setCompletions(data.completions);
   };
 
   const activeItems = useMemo(() => items.filter((item) => item.isActive), [items]);
@@ -326,7 +382,7 @@ export function SportsApp() {
     setLogDraftSets("");
   };
 
-  const handleCreateItem = (event: FormEvent<HTMLFormElement>) => {
+  const handleCreateItem = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const sport = newItemSport.trim();
     const name = newItemName.trim();
@@ -337,18 +393,34 @@ export function SportsApp() {
       return;
     }
 
-    setItems((current) => [
-      ...current,
-      {
-        id: createEntityId("sports_item"),
-        sport,
-        name,
-        metricKind: newItemMetricKind,
-        customUnit: newItemMetricKind === "custom" ? newItemCustomUnit.trim() : null,
-        isActive: true,
-        archivedAt: null,
-      },
-    ]);
+    if (storageSource === "supabase" && authUser) {
+      try {
+        await createSportsItemInDataStore({
+          sport,
+          name,
+          metricKind: newItemMetricKind,
+          customUnit: newItemMetricKind === "custom" ? newItemCustomUnit.trim() : null,
+          createdById: authUser.id,
+        });
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setItems((current) => [
+        ...current,
+        {
+          id: createEntityId("sports_item"),
+          sport,
+          name,
+          metricKind: newItemMetricKind,
+          customUnit: newItemMetricKind === "custom" ? newItemCustomUnit.trim() : null,
+          isActive: true,
+          archivedAt: null,
+        },
+      ]);
+    }
     setNewItemSport("");
     setNewItemName("");
     setNewItemMetricKind("count");
@@ -356,7 +428,7 @@ export function SportsApp() {
     flashSaved();
   };
 
-  const handleEditItem = (item: SportsItem) => {
+  const handleEditItem = async (item: SportsItem) => {
     const nextName = window.prompt("Edit tracker name", item.name);
     if (!nextName) {
       return;
@@ -365,24 +437,44 @@ export function SportsApp() {
     if (!cleaned) {
       return;
     }
-    setItems((current) =>
-      current.map((entry) => (entry.id === item.id ? { ...entry, name: cleaned } : entry)),
-    );
+    if (storageSource === "supabase") {
+      try {
+        await updateSportsItemInDataStore(item.id, { name: cleaned });
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setItems((current) =>
+        current.map((entry) => (entry.id === item.id ? { ...entry, name: cleaned } : entry)),
+      );
+    }
     flashSaved();
   };
 
-  const handleArchiveItem = (itemId: string) => {
+  const handleArchiveItem = async (itemId: string) => {
     const shouldArchive = window.confirm("Archive this tracker?");
     if (!shouldArchive) {
       return;
     }
-    setItems((current) =>
-      current.map((item) =>
-        item.id === itemId
-          ? { ...item, isActive: false, archivedAt: new Date().toISOString() }
-          : item,
-      ),
-    );
+    if (storageSource === "supabase") {
+      try {
+        await archiveSportsItemInDataStore(itemId);
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setItems((current) =>
+        current.map((item) =>
+          item.id === itemId
+            ? { ...item, isActive: false, archivedAt: new Date().toISOString() }
+            : item,
+        ),
+      );
+    }
     flashSaved();
   };
 
@@ -392,7 +484,7 @@ export function SportsApp() {
     resetLogDraftFields();
   };
 
-  const handleLogValue = (event: FormEvent<HTMLFormElement>) => {
+  const handleLogValue = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!selectedLogItem || !logDraftDate) {
       return;
@@ -462,7 +554,28 @@ export function SportsApp() {
       };
     }
 
-    setLogs((current) => [...current, nextLog]);
+    if (storageSource === "supabase" && authUser) {
+      try {
+        await createSportsLogInDataStore({
+          itemId: selectedLogItem.id,
+          dateLocal: logDraftDate,
+          metricKind: selectedLogItem.metricKind,
+          numericValue: nextLog.numericValue,
+          distanceKm: nextLog.distanceKm,
+          durationMin: nextLog.durationMin,
+          weightKg: nextLog.weightKg,
+          reps: nextLog.reps,
+          sets: nextLog.sets,
+          createdById: authUser.id,
+        });
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setLogs((current) => [...current, nextLog]);
+    }
     setLogDraftItemId(null);
     resetLogDraftFields();
     flashSaved();
@@ -481,33 +594,51 @@ export function SportsApp() {
     setNewRoutineSteps((current) => current.filter((_, stepIndex) => stepIndex !== index));
   };
 
-  const handleCreateRoutine = (event: FormEvent<HTMLFormElement>) => {
+  const handleCreateRoutine = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     const name = newRoutineName.trim();
-    if (!name || newRoutineSteps.length === 0) {
+    const draftStep = newRoutineStepInput.trim();
+    const stepNames = draftStep ? [...newRoutineSteps, draftStep] : newRoutineSteps;
+    if (!name || stepNames.length === 0) {
       return;
     }
 
-    const routineId = createEntityId("sports_routine");
-    setRoutines((current) => [
-      ...current,
-      {
-        id: routineId,
-        name,
-        isActive: true,
-        archivedAt: null,
-        createdAt: new Date().toISOString(),
-      },
-    ]);
-    setSteps((current) => [
-      ...current,
-      ...newRoutineSteps.map((stepName, index) => ({
-        id: createEntityId("sports_step"),
-        routineId,
-        name: stepName,
-        orderIndex: index,
-      })),
-    ]);
+    let routineId: string;
+    if (storageSource === "supabase" && authUser) {
+      try {
+        const result = await createSportsRoutineInDataStore({
+          name,
+          stepNames,
+          createdById: authUser.id,
+        });
+        routineId = result.routine.id;
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      routineId = createEntityId("sports_routine");
+      setRoutines((current) => [
+        ...current,
+        {
+          id: routineId,
+          name,
+          isActive: true,
+          archivedAt: null,
+          createdAt: new Date().toISOString(),
+        },
+      ]);
+      setSteps((current) => [
+        ...current,
+        ...stepNames.map((stepName, index) => ({
+          id: createEntityId("sports_step"),
+          routineId,
+          name: stepName,
+          orderIndex: index,
+        })),
+      ]);
+    }
     setSelectedRoutineId(routineId);
     setNewRoutineName("");
     setNewRoutineSteps([]);
@@ -515,7 +646,7 @@ export function SportsApp() {
     flashSaved();
   };
 
-  const handleEditRoutine = (routine: SportsRoutine) => {
+  const handleEditRoutine = async (routine: SportsRoutine) => {
     const nextName = window.prompt("Edit routine name", routine.name);
     if (!nextName) {
       return;
@@ -524,24 +655,44 @@ export function SportsApp() {
     if (!cleaned) {
       return;
     }
-    setRoutines((current) =>
-      current.map((entry) => (entry.id === routine.id ? { ...entry, name: cleaned } : entry)),
-    );
+    if (storageSource === "supabase") {
+      try {
+        await updateSportsRoutineInDataStore(routine.id, { name: cleaned });
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setRoutines((current) =>
+        current.map((entry) => (entry.id === routine.id ? { ...entry, name: cleaned } : entry)),
+      );
+    }
     flashSaved();
   };
 
-  const handleArchiveRoutine = (routineId: string) => {
+  const handleArchiveRoutine = async (routineId: string) => {
     const shouldArchive = window.confirm("Archive this routine?");
     if (!shouldArchive) {
       return;
     }
-    setRoutines((current) =>
-      current.map((routine) =>
-        routine.id === routineId
-          ? { ...routine, isActive: false, archivedAt: new Date().toISOString() }
-          : routine,
-      ),
-    );
+    if (storageSource === "supabase") {
+      try {
+        await archiveSportsRoutineInDataStore(routineId);
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setRoutines((current) =>
+        current.map((routine) =>
+          routine.id === routineId
+            ? { ...routine, isActive: false, archivedAt: new Date().toISOString() }
+            : routine,
+        ),
+      );
+    }
     if (activeRoutineDraft?.id === routineId) {
       setActiveRoutineDraft(null);
     }
@@ -585,7 +736,7 @@ export function SportsApp() {
     });
   };
 
-  const completeDraftRoutine = () => {
+  const completeDraftRoutine = async () => {
     if (!activeRoutineDraft) {
       return;
     }
@@ -596,20 +747,35 @@ export function SportsApp() {
       return;
     }
 
-    setCompletions((current) => [
-      ...current,
-      {
-        id: createEntityId("sports_completion"),
-        routineId: activeRoutineDraft.id,
-        dateLocal: todayDate || todayLocal(),
-        completedAt: new Date().toISOString(),
-      },
-    ]);
+    if (storageSource === "supabase" && authUser) {
+      try {
+        await createSportsRoutineCompletionInDataStore({
+          routineId: activeRoutineDraft.id,
+          dateLocal: todayDate || todayLocal(),
+          stepChecks: activeRoutineDraft.stepChecks,
+          createdById: authUser.id,
+        });
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setCompletions((current) => [
+        ...current,
+        {
+          id: createEntityId("sports_completion"),
+          routineId: activeRoutineDraft.id,
+          dateLocal: todayDate || todayLocal(),
+          completedAt: new Date().toISOString(),
+        },
+      ]);
+    }
     setActiveRoutineDraft(null);
     flashSaved();
   };
 
-  const handleAddStepToSelectedRoutine = () => {
+  const handleAddStepToSelectedRoutine = async () => {
     if (!selectedRoutine) {
       return;
     }
@@ -627,7 +793,23 @@ export function SportsApp() {
       name,
       orderIndex: nextOrderIndex,
     };
-    setSteps((current) => [...current, newStep]);
+    let addedStepId = newStep.id;
+    if (storageSource === "supabase") {
+      try {
+        const result = await addSportsRoutineStepInDataStore({
+          routineId: selectedRoutine.id,
+          name,
+          orderIndex: nextOrderIndex,
+        });
+        addedStepId = result.step.id;
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setSteps((current) => [...current, newStep]);
+    }
     setSelectedRoutineStepInput("");
     setActiveRoutineDraft((current) => {
       if (!current || current.id !== selectedRoutine.id) {
@@ -635,26 +817,41 @@ export function SportsApp() {
       }
       return {
         ...current,
-        stepChecks: { ...current.stepChecks, [newStep.id]: false },
+        stepChecks: { ...current.stepChecks, [addedStepId]: false },
       };
     });
     flashSaved();
   };
 
-  const handleRemoveStepFromSelectedRoutine = (stepId: string) => {
+  const handleRemoveStepFromSelectedRoutine = async (stepId: string) => {
     if (!selectedRoutine) {
       return;
     }
 
-    setSteps((current) => {
-      const remaining = current.filter((step) => step.id !== stepId);
-      const routineSteps = remaining
-        .filter((step) => step.routineId === selectedRoutine.id)
-        .sort((a, b) => a.orderIndex - b.orderIndex)
-        .map((step, index) => ({ ...step, orderIndex: index }));
-      const byId = new Map(routineSteps.map((step) => [step.id, step]));
-      return remaining.map((step) => byId.get(step.id) ?? step);
-    });
+    if (storageSource === "supabase") {
+      try {
+        const remainingSteps = selectedRoutineSteps.filter((step) => step.id !== stepId);
+        await removeSportsRoutineStepInDataStore({
+          routineId: selectedRoutine.id,
+          stepId,
+          remainingSteps,
+        });
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
+      setSteps((current) => {
+        const remaining = current.filter((step) => step.id !== stepId);
+        const routineSteps = remaining
+          .filter((step) => step.routineId === selectedRoutine.id)
+          .sort((a, b) => a.orderIndex - b.orderIndex)
+          .map((step, index) => ({ ...step, orderIndex: index }));
+        const byId = new Map(routineSteps.map((step) => [step.id, step]));
+        return remaining.map((step) => byId.get(step.id) ?? step);
+      });
+    }
     setActiveRoutineDraft((current) => {
       if (!current || current.id !== selectedRoutine.id) {
         return current;
@@ -669,31 +866,41 @@ export function SportsApp() {
     flashSaved();
   };
 
-  const handleMoveStepInSelectedRoutine = (stepId: string, direction: "up" | "down") => {
+  const handleMoveStepInSelectedRoutine = async (stepId: string, direction: "up" | "down") => {
     if (!selectedRoutine) {
       return;
     }
 
-    setSteps((current) => {
-      const routineSteps = current
-        .filter((step) => step.routineId === selectedRoutine.id)
-        .sort((a, b) => a.orderIndex - b.orderIndex);
-      const index = routineSteps.findIndex((step) => step.id === stepId);
-      if (index < 0) {
-        return current;
-      }
-      const targetIndex = direction === "up" ? index - 1 : index + 1;
-      if (targetIndex < 0 || targetIndex >= routineSteps.length) {
-        return current;
-      }
+    const routineSteps = selectedRoutineSteps;
+    const index = routineSteps.findIndex((step) => step.id === stepId);
+    if (index < 0) {
+      return;
+    }
+    const targetIndex = direction === "up" ? index - 1 : index + 1;
+    if (targetIndex < 0 || targetIndex >= routineSteps.length) {
+      return;
+    }
 
-      const reordered = [...routineSteps];
-      const [moved] = reordered.splice(index, 1);
-      reordered.splice(targetIndex, 0, moved);
-      const normalized = reordered.map((step, nextIndex) => ({ ...step, orderIndex: nextIndex }));
+    const reordered = [...routineSteps];
+    const [moved] = reordered.splice(index, 1);
+    reordered.splice(targetIndex, 0, moved);
+    const normalized = reordered.map((step, nextIndex) => ({ ...step, orderIndex: nextIndex }));
+
+    if (storageSource === "supabase") {
+      try {
+        await reorderSportsRoutineStepsInDataStore({
+          routineId: selectedRoutine.id,
+          steps: normalized,
+        });
+        await refreshSportsState();
+      } catch (error) {
+        showStorageError(error);
+        return;
+      }
+    } else {
       const byId = new Map(normalized.map((step) => [step.id, step]));
-      return current.map((step) => byId.get(step.id) ?? step);
-    });
+      setSteps((current) => current.map((step) => byId.get(step.id) ?? step));
+    }
     flashSaved();
   };
 
@@ -702,7 +909,7 @@ export function SportsApp() {
     setIsProfileOpen(false);
   };
 
-  if (authState === "loading") {
+  if (authState === "loading" || isDataLoading) {
     return (
       <main className="flex min-h-screen items-center justify-center px-4 py-8 sm:px-6">
         <section className="w-full max-w-sm rounded-lg border border-black/10 bg-white p-6 shadow-[0_18px_60px_rgba(0,0,0,0.08)]">

@@ -195,13 +195,18 @@ export function DailiesApp() {
     flashSavedBadge();
   };
 
-  const handleToggleDaily = async (template: DailyTaskTemplate, completed: boolean) => {
-    const previousLog = logsByTemplateId.get(template.id) ?? null;
+  const handleToggleDailyForDate = async (
+    template: DailyTaskTemplate,
+    dateLocal: string,
+    completed: boolean,
+  ) => {
+    const previousLog =
+      logs.find((log) => log.templateId === template.id && log.dateLocal === dateLocal) ?? null;
     const now = new Date().toISOString();
     const optimisticLog: DailyTaskLog = {
-      id: previousLog?.id ?? `daily_log_${template.id}_${todayLocal}`.replace(/[^a-zA-Z0-9_-]/g, "_"),
+      id: previousLog?.id ?? `daily_log_${template.id}_${dateLocal}`.replace(/[^a-zA-Z0-9_-]/g, "_"),
       templateId: template.id,
-      dateLocal: todayLocal,
+      dateLocal,
       completed,
       completedAt: completed ? now : null,
       createdAt: previousLog?.createdAt ?? now,
@@ -209,34 +214,38 @@ export function DailiesApp() {
     };
 
     setLogs((current) => {
-      const withoutTodayLog = current.filter(
-        (log) => !(log.templateId === template.id && log.dateLocal === todayLocal),
+      const withoutDateLog = current.filter(
+        (log) => !(log.templateId === template.id && log.dateLocal === dateLocal),
       );
-      return [...withoutTodayLog, optimisticLog];
+      return [...withoutDateLog, optimisticLog];
     });
 
     try {
       const result = await upsertDailyTaskLogInDataStore({
         templateId: template.id,
-        dateLocal: todayLocal,
+        dateLocal,
         completed,
       });
 
       setLogs((current) => {
-        const withoutTodayLog = current.filter(
-          (log) => !(log.templateId === template.id && log.dateLocal === todayLocal),
+        const withoutDateLog = current.filter(
+          (log) => !(log.templateId === template.id && log.dateLocal === dateLocal),
         );
-        return [...withoutTodayLog, result.log];
+        return [...withoutDateLog, result.log];
       });
       flashSavedBadge();
     } catch {
       setLogs((current) => {
-        const withoutTodayLog = current.filter(
-          (log) => !(log.templateId === template.id && log.dateLocal === todayLocal),
+        const withoutDateLog = current.filter(
+          (log) => !(log.templateId === template.id && log.dateLocal === dateLocal),
         );
-        return previousLog ? [...withoutTodayLog, previousLog] : withoutTodayLog;
+        return previousLog ? [...withoutDateLog, previousLog] : withoutDateLog;
       });
     }
+  };
+
+  const handleToggleDaily = async (template: DailyTaskTemplate, completed: boolean) => {
+    await handleToggleDailyForDate(template, todayLocal, completed);
   };
 
   const handleEditDaily = async (template: DailyTaskTemplate) => {
@@ -464,15 +473,29 @@ export function DailiesApp() {
                           log.completed,
                       );
                       return (
-                        <div
+                        <label
                           key={`${selectedHistory.dateLocal}_${template.id}`}
-                          className={`flex items-center justify-between rounded-md border px-2 py-2 ${
+                          className={`flex items-center gap-3 rounded-md border px-2 py-2 ${
                             done ? "border-black/10 bg-white text-black/55" : "border-black/15 bg-white"
                           }`}
                         >
-                          <p className={`text-sm ${done ? "line-through" : ""}`}>{template.title}</p>
-                          <span className="text-xs">{done ? "Done" : "Pending"}</span>
-                        </div>
+                          <input
+                            type="checkbox"
+                            checked={done}
+                            onChange={(event) =>
+                              void handleToggleDailyForDate(
+                                template,
+                                selectedHistory.dateLocal,
+                                event.target.checked,
+                              )
+                            }
+                            className="h-4 w-4 cursor-pointer rounded border-black/25"
+                          />
+                          <div className="flex min-w-0 flex-1 items-center justify-between gap-2">
+                            <p className={`truncate text-sm ${done ? "line-through" : ""}`}>{template.title}</p>
+                            <span className="text-xs">{done ? "Done" : "Pending"}</span>
+                          </div>
+                        </label>
                       );
                     })
                   )}
